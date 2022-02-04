@@ -1,0 +1,1265 @@
+\documentclass{jpc} 
+
+
+
+\keywords{discrete Gaussian, privacy mechanisms}
+
+\usepackage{natbib}
+\usepackage{algorithm,algorithmicx}
+\usepackage[noend]{algpseudocode}
+\renewcommand{\algorithmicrequire}{\textbf{Input:}}
+\renewcommand{\algorithmicensure}{\textbf{Output:}}
+\renewcommand{\algorithmiccomment}[1]{\hfill$\triangleright$ #1}
+
+\def\eg{{\em e.g.}}
+\def\cf{{\em cf.}}
+
+\newcommand{\ii}{\mathrm{i}\mkern1mu}
+
+
+\newcommand{\discL}{\operatorname{Lap}_{\Z}} \newcommand{\discN}{\mathcal{N}_{\Z}}
+\newcommand{\roundN}{\mathcal{N}_{\text{round}}}
+\newcommand{\discparamN}[1]{\mathcal{N}_{#1\Z}}
+\newcommand{\dgausss}[2]{{\discN\left(#1,#2\right)}}
+\newcommand{\dgauss}[1]{\dgausss{0}{#1}}
+\newcommand{\round}[1]{\ensuremath{\lfloor#1\rceil}}
+\newcommand{\ex}[2]{{\ifx&#1& \mathbb{E} \else
+\underset{#1}{\mathbb{E}} \fi \left[#2\right]}}
+\newcommand{\pr}[2]{{\ifx&#1& \mathbb{P} \else
+\underset{#1}{\mathbb{P}} \fi \left[#2\right]}}
+\newcommand{\var}[2]{{\ifx&#1& \mathsf{Var} \else
+\underset{#1}{\mathsf{Var}} \fi \left[#2\right]}}
+\newcommand{\dr}[3]{\mathrm{D}_{#1}\left(#2\middle\|#3\right)}
+\newcommand{\eqdef}{:=}
+\newcommand{\eps}{\varepsilon}
+\newcommand{\privloss}[2]{\mathsf{PrivLoss}\left(#1\middle\|#2\right)}
+\newcommand{\dx}[1][x]{\mathrm{d}#1}
+\newcommand{\Z}{\mathbb{Z}}
+\newcommand{\R}{\mathbb{R}}
+\newcommand{\bern}{\mathsf{Bernoulli}}
+
+
+
+
+\begin{document}
+
+\title{The Discrete Gaussian for Differential Privacy\rsuper*}
+\titlecomment{{\lsuper*}This work was presented at the \href{https://neurips.cc/Conferences/2020}{34th Advances in Neural Information Processing Systems conference (NeurIPS 2020)} and \href{https://proceedings.neurips.cc//paper_files/paper/2020/hash/b53b3a3d6ab90ce0268229151c9bde11-Abstract.html}{an extended abstract appears in the conference proceedings volume 33}~\cite{CKS20}. A preprint is available at \url{https://arxiv.org/abs/2004.00010}. Authors are in alphabetical order.}
+
+\author[C.~Canonne]{Cl\'ement L. Canonne}	\address{School of Computer Science, University of Sydney}	\email{clement.canonne@sydney.edu.au}  \thanks{This work was completed while CC was a Goldstine Postdoctoral Fellow at IBM Research -- Almaden.}	
+
+\author[G.~Kamath]{Gautam Kamath}	\address{Cheriton School of Computer Science, University of Waterloo}	\email{g@csail.mit.edu}  \thanks{GK is supported by an NSERC Discovery grant,
+a Compute Canada RRG grant, and a University of Waterloo startup grant.}	
+
+\author[T.~Steinke]{Thomas Steinke}	\address{Google Research, Brain Team}	\email{dgauss@thomas-steinke.net}
+\thanks{This work was completed while TS was at IBM Research -- Almaden.}	
+
+
+
+
+
+
+
+
+
+\begin{abstract}
+  \noindent A key tool for building differentially private systems is adding Gaussian noise to the output of a function evaluated on a sensitive dataset. Unfortunately, using a continuous distribution presents several practical challenges.
+First and foremost, finite computers cannot exactly represent samples from continuous distributions, and previous work has demonstrated that seemingly innocuous numerical errors can entirely destroy privacy. Moreover, when the underlying data is itself discrete (e.g., population counts), adding continuous noise makes the result less interpretable.
+
+With these shortcomings in mind, we introduce and analyze the discrete Gaussian in the context of differential privacy. Specifically, we theoretically and experimentally show that adding discrete Gaussian noise provides essentially the same privacy and accuracy guarantees as the addition of continuous Gaussian noise. We also present an simple and efficient algorithm for exact sampling from this distribution. This demonstrates its applicability for privately answering counting queries, or more generally, low-sensitivity integer-valued queries.
+\end{abstract}
+
+\maketitle
+
+\section{Introduction}
+Differential Privacy \citep{DworkMNS06} provides a rigorous standard for ensuring that the output of an algorithm does not leak the private details of individuals contained in its input. A standard technique for ensuring differential privacy is to evaluate a function on the input and then add a small amount of random noise to the result before releasing it. Specifically, it is common to add noise drawn from a Laplace or Gaussian distribution, which is scaled according to the \emph{sensitivity} of the function -- i.e., how much one person's data can change the function value. These are two of the most fundamental algorithms in differential privacy, which are used as subroutines in almost all differentially private systems. For example, differentially private algorithms for convex empirical risk minimization and deep learning are based on adding noise to gradients \citep{BassilyST14,AbadiCGMMTZ16}.
+
+However, the Laplace and Gaussian distributions are both continuous over the real numbers. As such, it is not possible to even represent a sample from them on a finite computer, much less produce such a sample. One might suppose that such issues are purely of theoretical interest, and that they can be resolved in practice by simply using standard floating-point arithmetic and representations. Unfortunately, this is not the case: Mironov \cite{Mironov12} demonstrated that the na\"ive use of finite-precision approximations can result in catastrophic failures of privacy. In particular, by examining the low-order bits of the noisy output of the Laplace mechanism, the noiseless value can often be determined.\footnote{We note that this attack is contingent on the specific sampling algorithm used to generate the Laplace noise. Mironov's attack is effectiveNo particular reason. We now use i throughout.
+ against the standard methods of sampling Laplace random variables, and is practically evaluated against the PINQ system~\cite{McSherry09}.} Mironov demonstrated that this information allows the entire input dataset can be rapidly reconstructed, while only a negligible privacy loss is recorded by the system. 
+Despite this demonstration, the flawed methods continue to appear in open source implementations of differentially private mechanisms. This demonstrates a real need for us to provide safe and practical solutions to enable the deployment of differentially private systems in real-world privacy-critical settings. In this work, we carefully consider how to securely implement these basic differentially private methods on finite computers that cannot faithfully represent real numbers. 
+
+
+
+
+
+One solution to this problem involves instead sampling from a \emph{discrete} distribution that can be sampled on a finite computer. For many natural queries, the output of the function to be computed is naturally discrete -- e.g., counting how many records in a dataset satisfy some predicate -- and hence there is no loss in accuracy when adding discrete noise to it. Otherwise, the function value must be rounded before adding noise.
+
+The discrete Laplace distribution (a.k.a.~two-sided geometric distribution) \citep{GhoshRS12,BalcerV17} is the natural discrete analogue of the continuous Laplace distribution. That is, instead of a probability density of $\frac{\eps}{2} \cdot e^{-\eps|x|}$ at $x \in \R$ we have a probability mass of $\frac{e^\eps-1}{e^\eps+1} \cdot e^{-\eps|x|}$ at $x \in \Z$. Akin to its continuous counterpart, the discrete Laplace distribution provides pure $(\eps,0)$-differential privacy when added to a sensitivity-1 value and has many other desirable properties. 
+
+The (continuous) Gaussian distribution has many advantages over the (continuous) Laplace distribution (and also some disadvantages), making it better suited for many applications. For example, the Gaussian distribution has lighter tails than the Laplace distribution. In settings with a high degree of composition -- i.e., answering many queries with independent noise, rather than a single query -- the scale (e.g., variance) of Gaussian noise is also lower than the scale of Laplace noise required for a comparable privacy guarantee. The privacy analysis under composition of Gaussian noise addition is typically simpler and sharper; in particular, these privacy guarantees can be cleanly expressed in terms of \emph{concentrated differential privacy} (CDP)~\citep{DworkR16,BunS16} and related variants of differential privacy \citep{Mironov17,BunDRS18,DongRS19}. (See Section \ref{sec:dlap} for further discussion.)
+
+Thus, it is natural to wonder whether a discretization of the Gaussian distribution retains the privacy and utility properties of the continuous Gaussian distribution, as is the case for the Laplace distribution. 
+In this paper, we show that this is indeed the case. 
+
+\begin{defi}[Discrete Gaussian]
+Let $\mu,\sigma\in\R$ with $\sigma > 0$. The discrete Gaussian distribution with location $\mu$ and scale $\sigma$ is denoted $\dgausss{\mu}{\sigma^2}$. It is a probability distribution supported on the integers and defined by 
+\begin{equation}
+\forall x \in \Z, ~~~~~ \pr{X \gets \dgausss{\mu}{\sigma^2}}{X=x}=\frac{e^{-(x-\mu)^2/2\sigma^2}}{\sum_{y \in \Z} e^{-(y-\mu)^2/2\sigma^2}}.
+\end{equation}
+\end{defi}
+Note that we exclusively consider $\mu \in \Z$; in this case, the distribution is symmetric and centered at $\mu$. This is the natural discrete analogue of the continuous Gaussian (which has density $\frac{1}{\sqrt{2\pi\sigma^2}} \cdot e^{-(x-\mu)^2/2\sigma^2}$ at $x \in \R$), and it arises in lattice-based cryptography (in a multivariate form, which is believed to be hard to sample from)~\cite[etc.]{GentryPV08,Regev09,Peikert10,Stephens-Davidowitz17}.
+
+\subsection{Results}
+
+Our investigations focus on three aspects of the discrete Gaussian: \emph{privacy}, \emph{utility}, and \emph{sampling}. In summary, we demonstrate that the discrete Gaussian provides the same level of privacy and utility as the continuous Gaussian. We also show that it can be efficiently sampled on a finite computer, thus addressing the shortcomings of continuous distributions discussed earlier. Along the way, we both prove and empirically demonstrate a number of additional properties of the discrete Gaussian of interest and useful to those deploying it for privacy purposes (and even otherwise). Notably, following the posting of a previous version of this work~\cite{CKS20}, the discrete Gaussian mechanism has been implemented and integrated in the \texttt{TopDown} algorithm to protect the data collected in the 2020 US Census~\citep{DAS21}. We proceed to elaborate on our contributions and findings.
+
+\paragraph{Privacy.} The discrete Gaussian enjoys privacy guarantees which are almost identical to those of the continuous Gaussian. More precisely, in Theorem~\ref{thm:priv}, we show that adding noise drawn from $\dgauss{1/\eps^2}$ to an integer-valued sensitivity-1 query (e.g., a counting query) provides $\frac12 \eps^2$-concentrated differential privacy. This is the same guarantee attained by adding a draw from $\mathcal{N}(0,1/\eps^2)$. Furthermore, in Theorem~\ref{thm:approx-dp}, we provide tight bounds on the discrete Gaussian's approximate differential privacy guarantees. For large scales $\sigma$, the discrete and continuous Gaussian have virtually the same privacy guarantee, although for smaller $\sigma$, the effects of discretization result in one or the other having marginally stronger privacy (depending on the parameters). Our results on privacy are presented in Section~\ref{sec:privacy}.
+
+\paragraph{Utility.} The discrete Gaussian attains the same or slightly better accuracy as the analogous continuous Gaussian. Specifically, Corollary~\ref{cor:bounds} shows that the variance of $\dgauss{\sigma^2}$ is at most $\sigma^2$, and that it also satisfies sub-Gaussian tail bounds comparable to $\mathcal{N}(0,\sigma^2)$. We show numerically that the discrete Gaussian is better than rounding the continuous Gaussian to an integral value. Our results on utility are provided in Section~\ref{sec:utility}.
+
+\paragraph{Sampling.} We can practically sample a discrete Gaussian on a finite computer. We present a simple and efficient exact sampling procedure that only requires access to uniformly random bits and does not involve any real-arithmetic operations or non-trivial function evaluations (Algorithm~\ref{fig:dgauss2}). As there are previous methods (see, e.g., Karney's algorithm~\citep{Karney16}, which was an inspiration for our work, and the more recent work of Du, Fan, and Wei~\citep{DuFW20}), we do not consider this to be one of our primary contributions. Nonetheless, we include these results as we consider our methods to be simpler, and in order to make our paper self-contained; we also provide open source code implementing our algorithm \citep{DGaussGithub}. Our results on how to sample are provided in Section~\ref{sec:sampling}.
+
+We provide a thorough comparison between the discrete Gaussian and the discrete Laplace distribution in Section~\ref{sec:dlap}. This includes statements of the privacy and utility guarantees for the discrete Laplace, and discussing its performance under composition in depth. 
+
+On a technical note, while the takeaway of many of our conclusions is that the discrete and continuous Gaussian are qualitatively similar, we comment that such statements are non-trivial to prove, in particular relying upon methods such as the Poisson summation formula and Fourier analysis. For instance, even basic statements on the stability property of Gaussians under linear combinations do not hold for the discrete counterpart, with their approximate versions being highly involved to establish (see, e.g.,~\citep{AggarwalR16}).
+
+\subsection{Related Work}
+As originally observed and demonstrated by Mironov~\citep{Mironov12}, na\"ive implementations of the Laplace mechanism with floating-point arithmetic blatantly fail to ensure differential privacy, or any form of privacy at all. As a remedy, Mironov introduced the snapping mechanism, which serves as a safe replacement for the Laplace mechanism in the floating-point setting. The snapping mechanism performs rounding and truncation on top of the floating-point arithmetic. However, properly implementing and analyzing the snapping mechanism can be involved \citep{Covington19}, due to the idiosyncrasies of floating-point arithmetic. Furthermore, the snapping mechanism requires a compromise on privacy and accuracy, relative to what is theoretically achievable. Our methods avoid floating-point arithmetic entirely and do not compromise the privacy or accuracy guarantees.
+
+Gazeau, Miller, and Palamidessi \cite{GazeauMP16} gave an alternate and more general analysis of Mironov's approach of rounding the output of an inexact sampling procedure.
+
+We note that, to the best of our knowledge, there is currently no known explicit attack against the Gaussian mechanism with floating-point arithmetic, and we consider this an interesting open question. 
+Mironov's attack does not straightforwardly apply to this setting, as Gaussian random variables are typically sampled using specialized methods. 
+One example is the celebrated Box-Muller transform~\cite{BoxM58}, which takes two samples from the uniform distribution on the interval $[0,1]$, and returns two samples from the standard Normal distribution.
+A recent work of Holohan and Braghin~\cite{HolohanB21} describes an attack for the special case where both Normal samples output from this procedure are observed.
+Jin, McMurtry, Rubinstein, and Ohrimenko~\cite{JinMRO21} provide a range of attacks against widely-used sampling procedures for Gaussian sampling (namely, the polar, Box--Muller, and Ziggurat methods), demonstrating the vulnerability of these standard techniques.\footnote{The authors also provide a different type of attack against the implementation of \emph{discrete} mechanisms, including the discrete Laplace and (our proposed implementation of) the discrete Gaussian mechanism: \emph{timing} attacks, where the time taken to sample the noise is observed by the attacker. While this type of attack is mostly relevant in settings where the mechanism is used in an online fashion, this highlights the importance of carefully assessing the threat model before using any particular implementation. We discuss this aspect in Section~\ref{ssec:runtime}.}
+Crucially, we emphasize that waiting for further attacks on the floating-point Gaussian mechanism to be published before trying to address the problem would be dangerous. As always in critical security applications, it is important to be proactive in defenses against likely attack vectors.
+
+
+Ghosh, Roughgarden, and Sundarajan \cite{GhoshRS12} proposed and analyzed a discrete version of the Laplace mechanism, which is also private on finite computers. However, this has heavier tails than the Gaussian and requires the addition of more noise (i.e., higher variance) than the Gaussian in settings with a high degree of composition (i.e., many queries). We provide a detailed comparison in Section \ref{sec:dlap}. 
+
+Perhaps the closest distribution to the discrete Gaussian that has been considered for differential privacy is the Binomial distribution. Dwork, Kenthapadi, McSherry, Mironov, and Naor \cite{DworkKMMN06} gave a differential privacy analysis of Binomial noise addition, which was improved by Agarwal, Suresh, Yu, Kumar, and McMahan \cite{AgarwalSYKM18}.\footnote{Dinur and Nissim \cite{DinurN03} also analyzed the privacy properties of Binomial noise addition, but this predates the definition of differential privacy.} The advantage of the Binomial is that it is amenable to distributed generation -- i.e., a sum of Binomials with the same bias parameter is also Binomial.\footnote{In subsequent work, Kairouz, Liu, and Steinke \cite{KairouzLS21} show that the discrete Gaussian is also amenable to distributed generation. Sums of discrete Gaussians are very close to a discrete Gaussian.} The disadvantage of Binomial noise addition, however, is that its privacy analysis is quite involved. One inherent reason for this is that the analysis must compare the Binomial to a shifted Binomial, and these distributions have different supports. If the observed output $y$ is in the support of $M(x)$ but not of $M(x')$ (i.e., $\pr{}{M(x')=y}=0$), then the privacy loss is infinite; this failure probability must be accounted for by the $\delta$ parameter of approximate $(\eps,\delta)$-differential privacy. In other words, the Binomial mechanism is inherently an \emph{approximate} differential privacy one (in comparison to the stronger concentrated differential privacy attainable by the discrete Gaussian). For large values of $n$, $\mathsf{Binomial}(n,p)$ provides guarantees comparable to $\mathcal{N}(0,np(1-p))$ or $\dgauss{np(1-p)}$. This matches the intuition, since $\mathsf{Binomial}(n,p)$ converges to a Gaussian as $n \to \infty$ by the central limit theorem. 
+
+A concurrent and independent work \citep{GoogleDGauss} analyzed what is, effectively, a truncated version of the discrete Gaussian. That work provides an almost identical sampling procedure, but a very different privacy analysis. In particular, it shows that the truncated discrete Gaussian is close to a Binomial distribution, which is, in turn, close to a rounded Gaussian. Their privacy analysis is based on this closeness. Our analysis is more direct.
+
+Subsequent to our work, the Skellam distribution, sampled by taking the difference of two Poisson random variables, has also received study in the context of differential privacy~\cite{AgarwalKL21,bao2022distributed}.
+This discrete distribution may serve as an alternative to the discrete Gaussian in certain settings, see~\cite{AgarwalKL21} for more discussion.
+
+Going beyond noise addition, it has been shown that private histograms~\citep{BalcerV17} and selection (i.e., the exponential mechanism)~\citep{Ilvento19} can be implemented on finite computers. (Both of these results are for pure $(\eps,0)$-differential privacy.)
+We remark that our noise addition methods can also form the basis of an implementation of these methods. For example, instead of the exponential mechanism, we can implement the ``Report Noisy Max'' algorithm \citep{DworkR14}, which uses Laplace or Exponential \citep{McKennaS20} or Gumbel \citep{Gumbel} noise to perform the same task of selection. McKenna and Sheldon \cite{McKennaS20} show how to sample from the exponential mechanism or the permute-and-flip mechanism using only uniform sampling from a discrete set and sampling from $\bern(\exp(-x))$ for some $x$ with a simple expression (for which we provide a procedure).
+
+To the best of our knowledge, there has been no work on implementing an analogue of Gaussian noise addition on finite computers. An obvious approach would be to round the output of some inexact sampling procedure. Properly analyzing this may be difficult, due to the fact that the underlying inexact Gaussian sampling procedure will be more complex than the equivalent for Laplace. Furthermore, in Section \ref{sec:utility}, we show empirically that our approach yields better utility than rounding.
+
+
+
+
+
+In Proposition \ref{prop:cdp2adp} and Corollary \ref{cor:cdp2adp}, we give a conversion from R\'enyi and concentrated differential privacy to approximate differential privacy. Asoodeh, Liao, Calmon, Kosut, and Sankar \cite{AsoodehLCKS20} provide an optimal conversion from R\'enyi differential privacy to approximate differential privacy as well as some approximations that subsume ours. Their optimal result is, by definition, tighter than ours (but only slightly) at the expense of being more complicated and less numerically stable. See Section \ref{sec:convert}.
+
+Another of our secondary contributions is a simple and efficient method for sampling from a discrete Gaussian or discrete Laplace; see Section \ref{sec:sampling}. Karney \cite{Karney16} and Du, Fan, and Wei \cite{DuFW20} also provide such algorithms. We consider our method to be simpler. In particular, our method keeps all arithmetic within the integers or the rational numbers, where exact arithmetic is possible. In contrast, Karney's method still involves representing real numbers, but this can be carefully implemented on a finite computer using a flexible level of precision and lazy evaluation -- that is, although a uniform sample from $[0,1]$ requires an infinite number of bits to represent, only a finite (but a priori unbounded) number of these bits are actually needed and these can be sampled when needed. There are also methods for \emph{approximate} sampling \citep{ZhaoSS19}, but our interest is in exact sampling.
+
+Finally, we remark that (a multivariate version of) the discrete Gaussian has been extensively studied in the context of lattice-based cryptography~\cite[etc.]{GentryPV08,Regev09,Peikert10,Stephens-Davidowitz17}.
+
+\section{Privacy}
+\label{sec:privacy}
+For completeness, we state the definitions of differential privacy~\citep{DworkMNS06,DworkKMMN06} and concentrated differential privacy~\citep{DworkR16,BunS16}.
+\begin{defi}[Pure/Approximate Differential Privacy]
+A randomized algorithm $M\colon \mathcal{X}^n \to \mathcal{Y}$ satisfies \emph{$(\eps,\delta)$-differential privacy} if, for all $x,x'\in\mathcal{X}^n$ differing on a single element and all events $E \subset \mathcal{Y}$, we have $\pr{}{M(x) \in E} \le e^\eps \cdot \pr{}{M(x') \in E} + \delta.$
+\end{defi}
+The special case of $(\eps,0)$-differential privacy is referred to as \emph{pure} or \emph{pointwise} $\eps$-differential privacy, whereas, for $\delta>0$, $(\eps,\delta)$-differential privacy is referred to as \emph{approximate differential privacy}.
+
+\begin{defi}[Concentrated Differential Privacy]\label{defn:cdp}
+A randomized algorithm $M\colon \mathcal{X}^n \to \mathcal{Y}$ satisfies \emph{$\frac12 \eps^2$-concentrated differential privacy} if, for all $x,x' \in \mathcal{X}^n$ differing on a single element and all $\alpha \in (1,\infty)$, we have $\dr{\alpha}{M(x)}{M(x')} \le \frac12 \eps^2  \alpha,$ where $\dr{\alpha}{P}{Q} = \frac{1}{\alpha-1} \log\left(\sum_{y \in \mathcal{Y}} P(y)^\alpha Q(y)^{1-\alpha}\right)$ is the R\'enyi divergence of order $\alpha$ of the distribution $P$ from the distribution $Q$.\footnote{We take $\log$ to be the natural logarithm -- i.e., base $e \approx 2.718$.}\footnote{We use the parameterization $\frac12\eps^2$-concentrated differential privacy instead of $\rho$-concentrated differential privacy as in the original paper. This is because $\eps$ is a more familiar privacy parameter and, by setting $\rho = \frac12\eps^2$, we put it on the same ``scale'' as pure or approximate differential privacy. We revert to $\rho$ where it might otherwise be confusing, e.g., in Corollary \ref{cor:cdp2adp} where we simultaneously discuss concentrated differential privacy and approximate differential privacy.}
+\end{defi}
+
+Note that $(\eps,0)$-differential privacy implies $\frac12 \eps^2$-concentrated differential privacy and $\frac12 \eps^2$-concentrated differential privacy implies $\left(\frac12 \eps^2 + \eps \cdot \sqrt{2\log(1/\delta)},\delta\right)$-differential privacy for all $\delta>0$ \citep{BunS16}.
+
+\subsection{Concentrated Differential Privacy}
+In this section, we prove our main result on concentrated differential privacy (CDP), showing that the discrete Gaussian provides the same CDP guarantees as the continuous one.
+\begin{thm}[Discrete Gaussian Satisfies Concentrated Differential Privacy]\label{thm:priv}
+Let $\Delta,\eps>0$.
+Let $q\colon \mathcal{X}^n \to \Z$ satisfy $|q(x)-q(x')|\le\Delta$ for all $x,x'\in\mathcal{X}^n$ differing on a single entry. Define a randomized algorithm $M\colon \mathcal{X}^n \to \Z$ by $M(x)=q(x)+Y$ where $Y \gets \dgauss{\Delta^2/\eps^2}$. Then $M$ satisfies $\frac12 \eps^2$-concentrated differential privacy.
+\end{thm}
+\noindent Theorem~\ref{thm:priv} follows from Proposition~\ref{prop:renyi} and Definition~\ref{defn:cdp} .
+\begin{prop}\label{prop:renyi}
+Let $\sigma,\alpha \in \R$ with $\sigma>0$ and $\alpha \ge 1$. Let $\mu, \nu \in \Z$. Then 
+\begin{equation}
+\dr{\alpha}{\dgausss{\mu}{\sigma^2}}{\dgausss{\nu}{\sigma^2}}\le \frac{(\mu-\nu)^2}{2\sigma^2}\cdot \alpha.
+\end{equation}
+Furthermore, this inequality is an equality whenever $\alpha \cdot (\mu - \nu)$ is an integer.
+\end{prop}
+It is worth noting that the continuous Gaussian satisfies the same concentrated differential privacy bound, with equality for all R\'enyi divergence parameters: $\dr{\alpha}{\mathcal{N}(\mu,\sigma^2)}{\mathcal{N}(\nu,\sigma^2)} = \frac{(\mu-\nu)^2}{2\sigma^2} \cdot \alpha$ for all $\alpha,\mu,\nu,\sigma \in \R$ with $\sigma>0$. Thus we see that the privacy guarantee of the discrete Gaussian is essentially identical to that of the continuous Gaussian with the same parameters. 
+To prove Proposition \ref{prop:renyi}, we use the following well-known (e.g.,~\citep{Regev09}) technical lemma. Throughout, we let $\ii{}=\sqrt{-1}$ denote the imaginary unit. 
+
+\begin{lem}\label{lem:poisson}
+Let $\mu, \sigma \in \R$ with $\sigma>0$. Then 
+\begin{equation}
+\sum_{x \in \Z} e^{-(x-\mu)^2/2\sigma^2} \le \sum_{x \in \Z} e^{-x^2/2\sigma^2}.
+\end{equation}
+\end{lem}
+\begin{proof}
+Let $f\colon \R\to\R$ be defined by $f(x) = e^{-x^2/2\sigma^2}$. Define its Fourier transform $\hat{f}\colon \R \to \R$ by 
+\[
+    \hat{f}(y) = \int_\R f(x) e^{-2\pi\ii{}xy} \mathrm{d}x = \sqrt{2\pi\sigma^2} \cdot e^{-2\pi^2\sigma^2y^2},
+\]
+where $i^2=-1$.
+By the Poisson summation formula \citep{poisson,poisson2}, for every $t\in\R$, we have 
+\[
+        \sum_{x\in\Z} f(x+t) = \sum_{y\in\Z} \hat{f}(y) \cdot e^{2\pi \ii y t}.
+\]
+(This is the Fourier series representation of the $1$-periodic function $g\colon \R \to \R$ given by $g(t) = \sum_{x\in\Z} e^{-(x+t)^2/2\sigma^2}$.)
+In particular, $f(x)>0$ and $\hat{f}(x)>0$ for all $x \in \R$. From this and the triangle inequality, we get
+\begin{align*}
+    \sum_{x \in \Z} e^{-(x-\mu)^2/2\sigma^2} &=    \sum_{x\in\Z} f(x-\mu) 
+    = \left| \sum_{x\in\Z} f(x-\mu) \right| 
+    = \left| \sum_{y\in\Z} \hat{f}(y)e^{-2\pi \ii{} y \mu}\right| \\
+    &\leq \sum_{y\in\Z} \left| \hat{f}(y)  e^{-2\pi \ii{} y \mu}\right|
+    = \sum_{y\in\Z} \hat{f}(y) 
+    = \sum_{x\in\Z} f(x) = \sum_{x \in \Z} e^{-x^2/2\sigma^2},
+\end{align*}
+proving the lemma.
+\end{proof}
+
+\begin{proof}[Proof of Proposition \ref{prop:renyi}.] Without loss of generality, $\nu=0$ and $\alpha>1$. Recalling that $\mu\in\Z$, we have
+\begin{align*}
+    e^{(\alpha-1)\dr{\alpha}{\dgausss{\mu}{\sigma^2}}{\dgausss{0}{\sigma^2}}} &= \sum_{x \in \Z} \pr{X \gets \dgausss{\mu}{\sigma^2}}{X=x}^\alpha \cdot \pr{X \gets \dgausss{0}{\sigma^2}}{X=x}^{1-\alpha}\\
+    &= \sum_{x \in \Z} \left(\frac{e^{-(x-\mu)^2/2\sigma^2}}{\sum_{y \in \Z} e^{-(y-\mu)^2/2\sigma^2}}\right)^\alpha \cdot \left(\frac{e^{-x^2/2\sigma^2}}{\sum_{y \in \Z} e^{-y^2/2\sigma^2}}\right)^{1-\alpha}\\
+    &= \frac{\sum_{x \in \Z}\exp\left(\frac{-x^2 +2\alpha\mu x -\alpha \mu^2}{2\sigma^2}\right)}{\sum_{y \in \Z} e^{-y^2/2\sigma^2}}\\
+    &=  e^{\alpha(\alpha-1)\mu^2/2\sigma^2} \cdot \frac{\sum_{x \in \Z}e^{{-(x-\alpha\mu)^2}/{2\sigma^2}}}{\sum_{y \in \Z} e^{-y^2/2\sigma^2}}\\
+    &\le e^{\alpha(\alpha-1)\mu^2/2\sigma^2},
+\end{align*}
+where the final inequality follows from Lemma \ref{lem:poisson}. The inequality is an equality when $\alpha\mu\in\Z$.
+\end{proof}
+
+We remark that, like its continuous counterpart, the discrete Gaussian can also be analysed in the setting where the scale parameter $\sigma^2$ is data dependent \citep{BunDRS18}. This arises in the application of smooth sensitivity \citep{NissimRS07,BunS19}.
+
+\subsection{Approximate Differential Privacy}
+In this section, we prove our main result on approximate differential privacy; namely, a tight bound on the privacy parameters achieved by the discrete Gaussian.
+\begin{thm}[Discrete Gaussian Satisfies Approximate Differential Privacy]\label{thm:approx-dp}
+Let $\Delta,\sigma,\eps>0$. Let $q\colon \mathcal{X}^n \to \Z$ satisfy $|q(x)-q(x')|\le\Delta$ for all $x,x'\in\mathcal{X}^n$ differing on a single entry. Define a randomized algorithm $M\colon \mathcal{X}^n \to \Z$ by $M(x)=q(x)+Y$ where $Y \gets \dgauss{\sigma^2}$. Then $M$ satisfies $(\eps,\delta)$-differential privacy for 
+\begin{equation}
+\delta = \pr{Y \gets \dgauss{\sigma^2}}{Y > \frac{\eps \sigma^2}{\Delta} - \frac{\Delta}{2}} - e^\eps \cdot \pr{Y \gets \dgauss{\sigma^2}}{Y > \frac{\eps \sigma^2}{\Delta} + \frac{\Delta}{2}}.
+\end{equation}
+Furthermore, this is the smallest possible value of $\delta$ for which this is true.
+\end{thm}
+\noindent This privacy guarantee matches that of the continuous Gaussian: If we replace all occurrences of the discrete Gaussian with the continuous Gaussian above, then the same result holds \cite[Thm.~8]{BalleW18}. Empirically, these guarantees are very close.
+
+
+We also provide some analytic upper bounds (proofs can be found at the end of this section): First, for $\Delta=1$ we have $\delta \le e^{-\lfloor \eps \sigma^2 \rceil^2/2\sigma^2}/\sqrt{2\pi\sigma^2}$, where $\lfloor \cdot \rceil$ denotes rounding to the nearest integer. Furthermore, if $\eps > \frac{\Delta^2}{2\sigma^2}$ and $\frac{\eps\sigma^2}{\Delta}\pm \frac{\Delta}{2}\notin \mathbb{N}$, then \begin{equation}
+\delta \le \pr{X \gets \mathcal{N}(0,\sigma^2)}{ X > \left\lfloor \frac{\eps\sigma^2}{\Delta}-\frac{\Delta}{2} \right\rfloor }-\left(1-\frac{1}{\sqrt{2\pi\sigma^2}+1}\right)e^\eps\pr{X \gets \mathcal{N}(0,\sigma^2)}{X > \left\lfloor \frac{\eps\sigma^2}{\Delta}+\frac{\Delta}{2} \right\rfloor }.\label{eq:analytic_ed}
+\end{equation}
+
+
+\noindent In Figure \ref{fig:epsdelta}, we empirically compare the optimal $\delta$ (given by Theorem~\ref{thm:approx-dp}) to  the bound attained by the corresponding continuous Gaussian, as well as this analytic upper bound \eqref{eq:analytic_ed}, the standard upper bound entailed by concentrated differential privacy, and an improved upper bound via concentrated differential privacy (Corollary \ref{cor:cdp2adp}). We see that the upper bounds are reasonably tight. The discrete and continuous Gaussian attain almost identical guarantees for large $\sigma$, but the discretization creates a small difference that becomes apparent for small $\sigma$.\begin{figure}[ht!]
+    \centering
+    \begin{minipage}{0.5\textwidth}
+        \includegraphics[width=\textwidth]{dg_epsdelta.png}
+    \end{minipage}
+    \hspace{-10pt}
+    \begin{minipage}{0.5\textwidth}
+        \includegraphics[width=\textwidth]{dg_epsdelta2.png}
+    \end{minipage}
+    \caption{\label{fig:epsdelta} Comparison of approximate $(\eps,\delta)$-differential privacy guarantees ($\delta$ as a function of $\eps$). The solid blue line is the optimal bound given by Theorem~\ref{thm:approx-dp}, while the dotted red line is the bound for the corresponding continuous Gaussian. The dashed green line is the analytic upper bound from~\eqref{eq:analytic_ed}. Finally, the purple line is the standard bound from CDP, and the dash-and-dotted lime green corresponds to the improved CDP bound from Corollary \ref{cor:cdp2adp}.}\label{fig:my_label}
+\end{figure}
+
+To prove Theorem \ref{thm:approx-dp}, we introduce the privacy loss random variable \citep{DworkRV10,DworkR16,BunS16} and relate it to approximate differential privacy.\footnote{In the information theory literature, the term ``relative information spectrum'' is sometimes used for the distribution of what we call the privacy loss random variable \citep{SasonV16,Liu18}.}
+
+\begin{defi}[Privacy Loss Random Variable]\label{defn:privloss}
+Let $M\colon \mathcal{X}^n \to \mathbb{Y}$ be a randomized algorithm. Let $x,x'\in\mathcal{X}^n$ be neighbouring inputs. Define $f\colon \mathcal{Y} \to \R$ by $f(y) = \log\!\left(\frac{\pr{}{M(x)=y}}{\pr{}{M(x')=y}}\right)$.\footnote{More formally, $f$ is the logarithm of the Radon-Nikodym derivative of the distribution of $M(x)$ with respect to the distribution of $M(x')$. If the distribution of $M(x)$ is not absolutely continuous with respect to $M(x')$, then the privacy loss random variable is undefined.} Let $Z=f(M(x))$. That is, $Z \in \R$ is the random variable generated by applying the function $f$ to the output of $M(x)$. (The randomness of $Z$ comes entirely from the algorithm $M$.)
+Then $Z$ is called the \emph{privacy loss random variable} and is denoted $Z\gets\privloss{M(x)}{M(x')}$.
+\end{defi}
+
+Concentrated differential privacy can be formulated in terms of the moment generating function of the privacy loss \citep{BunS16}. Specifically, for any $M\colon \mathcal{X}^n \to \mathbb{Y}$, any $x,x' \in \mathcal{X}^n$, and any $\alpha \in (1,\infty)$, we have \begin{equation}
+    \dr{\alpha}{M(x)}{M(x')} = \frac{1}{\alpha-1} \log \left( \ex{Z \gets \privloss{M(x)}{M(x')}}{e^{(\alpha-1)Z}} \right)
+\end{equation}
+
+Approximate differential privacy can also be characterized via the privacy loss as follows. This characterization is implicit in the work of Bun and Steinke \cite[Lemma B.2]{BunS16} and is explicit in the work of Meiser and Mohammadi \cite[Lemma 1]{MeiserM18} (see also \cite[Observation 2]{GoogleComposition} and references therein).
+
+\begin{lem}\label{lem:pled}Let $\eps,\delta\ge 0$. Let $M\colon \mathcal{X}^n \to \mathcal{Y}$ be a randomized algorithm. Then $M$ satisfies $(\eps,\delta)$-differential privacy if and only if
+\begin{align}
+    \delta 
+    &\ge \ex{Z \gets \privloss{M(x)}{M(x')}}{\max\{0,1-e^{\eps-Z}\}} \label{eq:pled1}\\
+    &= \pr{Z \gets \privloss{M(x)}{M(x')}}{Z>\eps} - e^\eps \cdot \! \pr{Z' \gets \privloss{M(x')}{M(x)}}{-Z'>\eps}\label{eq:pled2}\\
+    &= \int_\eps^\infty e^{\eps-z} \pr{Z \gets \privloss{M(x)}{M(x')}}{Z>z} \dx[z] \label{eq:pled3}
+\end{align}
+for all $x,x' \in \mathcal{X}^n$ differing on a single element.
+\end{lem}
+\noindent Observe that, by Markov's inequality, for all $\alpha > 1$, it suffices to set
+\begin{align}
+    \delta &= \pr{Z \gets \privloss{M(x)}{M(x')}}{Z>\eps} \notag\\
+    &\le e^{-(\alpha-1)\eps} \cdot \ex{Z \gets \privloss{M(x)}{M(x')}}{e^{(\alpha-1)Z}} \notag\\
+    &= e^{(\alpha-1)(\dr{\alpha}{M(x)}{M(x')} - \eps)}.
+\end{align} This is the usual expression that is used to convert bounds on the privacy loss or R\'enyi divergence into approximate differential privacy. Lemma \ref{lem:pled} and Proposition \ref{prop:cdp2adp} represent an improvement on this.
+
+\begin{proof}
+Fix neighbouring inputs $x,x'\in\mathcal{X}^n$. 
+Let $f\colon \mathcal{Y} \to \R$ be as in Definition \ref{defn:privloss}.
+For notational simplicity, let $Y=M(x)$ and $Y'=M(x')$ and $Z=f(Y)$ and $Z'=-f(Y')$. This is equivalent to $Z \gets \privloss{M(x)}{M(x')}$ and $Z' \gets \privloss{M(x')}{M(x)}$.
+Our first goal is to prove that
+$$\sup_{E \subset \mathcal{Y}} \pr{}{Y \in E} - e^\eps \pr{}{Y' \in E} = \ex{}{\max\{0,1-e^{\eps-Z}\}}.
+$$
+For any $E \subset \mathcal{Y}$, we have $$\pr{}{Y' \in E} = \ex{}{\mathbb{I}[Y' \in E]} = \ex{}{\mathbb{I}[Y \in E]\cdot e^{-f(Y)}}.$$ This is because $e^{f(y)} = \frac{\pr{}{Y=y}}{\pr{}{Y'=y}}$.\footnote{Here we abuse notation: We use notation that only is well-defined for discrete random variables. However, the result holds in general under appropriate assumptions.}
+
+Thus, for all $E \subset \mathcal{Y}$, we have $$\pr{}{Y \in E} - e^\eps \pr{}{Y' \in E} = \ex{}{\mathbb{I}[Y \in E] \cdot (1 - e^{\eps-f(Y)})}.$$ Now it is easy to identify the worst event as $E = \{y \in \mathcal{Y} : 1-e^{\eps-f(y)}>0\}$. Thus $$\sup_{E \subset \mathcal{Y}} \pr{}{Y \in E} - e^\eps \pr{}{Y' \in E} = \ex{}{\mathbb{I}[1-e^{\eps-f(Y)}>0] \cdot (1 - e^{\eps-f(Y)})} = \ex{}{\max\{0,1-e^{\eps-Z}\}}.$$
+
+\noindent Alternatively, since the worst event is equivalently $E = \{ y \in \mathcal{Y} : f(y) > \eps \}$, we have $$\sup_{E \subset \mathcal{Y}} \pr{}{Y \in E} - e^\eps \pr{}{Y' \in E} = \pr{}{f(Y)>\eps} - e^\eps \pr{}{f(Y')>\eps} = \pr{}{Z>\eps}-e^\eps \pr{}{-Z'>\eps}.$$
+
+\noindent It only remains to show that $$\ex{}{\max\{0,1-e^{\eps-Z}\}} = \int_\eps^\infty e^{\eps-z} \pr{}{Z>z} \dx[z].$$
+This follows from integration by parts: Let $u(z) = \pr{}{Z>z}$ and $v(z) = 1-e^{\eps-z}$ and $w(z)=u(z) \cdot v(z)$. Then 
+\begin{align*}
+    \ex{}{\max\{0,1-e^{\eps-Z}\}} &= \int_\eps^\infty v(z) \cdot u'(z) \dx[z] = \int_\eps^\infty \left( w'(z) - v'(z) \cdot u(z) \right) \dx[z]\\
+    &= \lim_{z \to \infty} w(z) - w(\eps) + \int_\eps^\infty e^{\eps-z} \pr{}{Z>z} \dx[z].
+\end{align*}
+Now $w(\eps) = u(\eps) \cdot (1-e^{\eps-\eps}) = 0$ and $0 \le \lim_{z \to \infty} w(z) \le \lim_{z \to \infty} \pr{}{Z>z} = 0$, as required.
+\end{proof}
+
+\begin{proof}[Proof of Theorem \ref{thm:approx-dp}]
+We will use Lemma \ref{lem:pled}, Equation \ref{eq:pled2}. Thus
+our main task is to determine the distribution of the privacy loss random variable.
+
+Fix neighbouring inputs $x,x'\in\mathcal{X}^n$. Without loss of generality, we may assume that $q(x)=0$ and $q(x')>0$. Now we have $q(x')\le\Delta$.
+Let $f : \mathcal{Y} \to \R$ be as in Definition \ref{defn:privloss}.
+For notational simplicity, let $Y=M(x)\sim \dgauss{\sigma^2}$ and $Y'=M(x')\sim \dgausss{q(x')}{\sigma^2}$ and $Z=f(Y)$ and $Z'=-f(Y')$. This is equivalent to $Z \gets \privloss{M(x)}{M(x')}$ and $Z' \gets \privloss{M(x')}{M(x)}$.
+We must show that $$\pr{}{Z>\eps}-e^\eps \pr{}{-Z'>\eps} \le \pr{Y \gets \dgauss{\sigma^2}}{Y > \frac{\eps \sigma^2}{\Delta} - \frac{\Delta}{2}} - e^\eps \cdot \pr{Y \gets \dgauss{\sigma^2}}{Y > \frac{\eps \sigma^2}{\Delta} + \frac{\Delta}{2}}$$
+For $y \in \mathcal{Y}$, we have
+\begin{align*}
+    f(y) &= \log \left(\frac{\pr{}{Y=y}}{\pr{}{Y'=y}}\right)
+    = \log \left(\frac{e^{-(y-q(x))^2/2\sigma^2}}{e^{-(y-q(x'))^2/2\sigma^2}}\right)
+    = \frac{(y-q(x'))^2-y^2}{2\sigma^2}
+    = \frac{q(x') \cdot (q(x') -2y)}{2\sigma^2}.
+\end{align*}
+Thus, for all $y \in \mathcal{Y}$,
+\begin{align*}
+    f(y) > \eps &\iff -y > \frac{\sigma^2\eps}{q(x')}-\frac{q(x')}{2}.
+\end{align*}
+We note that $Y$ and $-Y$ and $Y'-q(x')$ and $q(x')-Y'$ all have the same distribution. Hence
+$$\pr{}{Z>\eps} = \pr{}{f(Y)>\eps} = \pr{}{-Y > \frac{\sigma^2\eps}{q(x')}-\frac{q(x')}{2}} = \pr{}{Y > \frac{\sigma^2\eps}{q(x')}-\frac{q(x')}{2}}$$
+and
+$$\pr{}{-Z'>\eps} = \pr{}{-Y' > \frac{\sigma^2\eps}{q(x')}-\frac{q(x')}{2}} = \pr{}{Y-q(x') > \frac{\sigma^2\eps}{q(x')}-\frac{q(x')}{2}} = \pr{}{Y > \frac{\sigma^2\eps}{q(x')}+\frac{q(x')}{2}}.$$\qedhere
+\end{proof}
+
+\paragraph{Proofs of the analytical bounds.}
+We now provide the proofs of the two aforementioned analytical bounds for $(\eps,\delta)$-differential privacy our theorem readily implies.
+\begin{lem}
+In the setting of Theorem~\ref{thm:approx-dp}, for $\Delta=1$, we have 
+$
+    \delta \le e^{-\lfloor \eps \sigma^2 \rceil^2/2\sigma^2}/\sqrt{2\pi\sigma^2}\,,
+$
+where $\lfloor\cdot\rceil$ denotes rounding to the nearest integer. More generally, $\delta \le \sum_{k=\lceil \eps\sigma^2/\Delta-\Delta/2\rceil}^{\lceil \eps\sigma^2/\Delta+\Delta/2\rceil} \frac{e^{-k^2/2\sigma^2}}{\sqrt{2\pi \sigma^2}}$
+\end{lem}
+\begin{proof}
+By Theorem~\ref{thm:approx-dp}, we have
+\begin{align*}
+\delta 
+&= \pr{Y \gets \dgauss{\sigma^2}}{Y > \frac{\eps \sigma^2}{\Delta}- \frac{\Delta}{2}} - e^\eps \cdot \pr{Y \gets \dgauss{\sigma^2}}{Y > \frac{\eps \sigma^2}{\Delta} + \frac{\Delta}{2}}\\
+&\leq \pr{Y \gets \dgauss{\sigma^2}}{Y > \frac{\eps \sigma^2}{\Delta}- \frac{\Delta}{2}} - \pr{Y \gets \dgauss{\sigma^2}}{Y > \frac{\eps \sigma^2}{\Delta} + \frac{\Delta}{2}}\\
+&= \sum_{k=\lceil \eps\sigma^2/\Delta-\Delta/2\rceil}^{\lceil \eps\sigma^2/\Delta+\Delta/2\rceil} \pr{Y \gets \dgauss{\sigma^2}}{Y = k}
+\end{align*}
+and the result now follows from the bound on the normalization constant from Fact~\ref{fact:normalization:constant}.
+\end{proof}
+
+\begin{lem}
+In the setting of Theorem~\ref{thm:approx-dp}, if $\eps > \frac{\Delta^2}{2\sigma^2}$ and $\frac{\eps\sigma^2}{\Delta}+\frac{\Delta}{2},\frac{\eps\sigma^2}{\Delta}-\frac{\Delta}{2}\notin \mathbb{N}$ then
+\begin{equation}
+\delta \le \pr{X \gets \mathcal{N}(0,\sigma^2)}{ X > \left\lfloor \frac{\eps\sigma^2}{\Delta}-\frac{\Delta}{2} \right\rfloor }-\left(1-\frac{1}{\sqrt{2\pi\sigma^2}+1}\right)e^\eps\pr{X \gets \mathcal{N}(0,\sigma^2)}{X > \left\lfloor \frac{\eps\sigma^2}{\Delta}+\frac{\Delta}{2} \right\rfloor }.
+\end{equation}
+\end{lem}
+\begin{proof}
+Let $\eps > \frac{\Delta^2}{2\sigma^2}$ be such that $\frac{\eps\sigma^2}{\Delta}+\frac{\Delta}{2}\notin \mathbb{N}$, and set $M(\eps,\sigma) \eqdef \left\lceil {\eps\sigma^2}/{\Delta}-{\Delta}/{2} \right\rceil$ and $m(\eps,\sigma) \eqdef \left\lfloor {\eps\sigma^2}/{\Delta}+{\Delta}/{2} \right\rfloor$. Then, by Proposition~\ref{prop:tail:bound:gaussian},
+\begin{align*}
+    \pr{X \gets \dgauss{\sigma^2}}{ X > \frac{\eps\sigma^2}{\Delta}-\frac{\Delta}{2} }
+    &= \pr{X \gets \dgauss{\sigma^2}}{ X \geq M(\eps,\sigma) }
+    \leq \pr{X \gets \mathcal{N}(0,\sigma^2)}{ X \geq M(\eps,\sigma)-1 } \\
+    &\leq \pr{X \gets \mathcal{N}(0,\sigma^2)}{ X \geq \left\lfloor \frac{\eps\sigma^2}{\Delta}-\frac{\Delta}{2} \right\rfloor }
+\end{align*}
+Conversely, by a comparison series-integral, we can easily show that, for any integer $m$,
+\begin{align*}
+\sum_{n=m}^\infty e^{-n^2/(2\sigma^2)}
+&= \sum_{n=m}^\infty \int_{n}^{n+1} e^{-n^2/(2\sigma^2)}\,\dx
+\geq \int_{m}^\infty e^{-x^2/(2\sigma^2)}\,\dx
+= \sqrt{2\pi\sigma^2}\pr{X \gets \mathcal{N}(0,\sigma^2)}{ X \geq m }
+\end{align*}
+which, combined with Fact~\ref{fact:normalization:constant} on the normalization constant of the discrete Gaussian, yields
+\begin{align*}
+    \pr{X \gets \dgauss{\sigma^2}}{ X > \frac{\eps\sigma^2}{\Delta}+\frac{\Delta}{2} }
+    &= \pr{X \gets \dgauss{\sigma^2}}{ X \geq m(\eps,\sigma) }
+    \geq \frac{1}{1+\frac{1}{\sqrt{2\pi\sigma^2}}}\pr{X \gets \mathcal{N}(0,\sigma^2)}{ X \geq m(\eps,\sigma) }
+\end{align*}
+The result then follows from Theorem~\ref{thm:approx-dp}.
+\end{proof}
+
+\subsection{Converting Concentrated Differential Privacy to Approximate Differential Privacy}\label{sec:convert}
+
+We have stated guarantees for both concentrated differential privacy (Theorem \ref{thm:priv}) and approximate differential privacy (Theorem \ref{thm:approx-dp}). Now we show how to convert from the former to the latter (Corollary~\ref{cor:cdp2adp}). This is particularly useful if the discrete Gaussian is being used repeatedly and we want to provide a privacy guarantee for the composition -- concentrated differential privacy has cleaner composition guarantees than approximate differential privacy. We include this result for completeness; this result was recently proved independently \cite[Lem.~1, Eq.~20]{AsoodehLCKS20}.
+
+We start with a conversion from R\'enyi differential privacy to approximate differential privacy. 
+\begin{prop}\label{prop:cdp2adp}
+Let $M\colon \mathcal{X}^n \to \mathcal{Y}$ be a randomized algorithm. Let $\alpha \in (1,\infty)$ and $\eps\ge0$. Suppose $\dr{\alpha}{M(x)}{M(x')} \le \tau$ for all $x,x'\in\mathcal{X}^n$ differing in a single entry.\footnote{This assumption is the definition of $(\alpha,\tau)$-R\'enyi differential privacy \citep{Mironov17}.}
+Then $M$ is $(\eps,\delta)$-differentially private for \begin{equation}
+    \delta=\frac{e^{(\alpha-1)(\tau-\eps)}}{\alpha-1} \cdot \left(1-\frac{1}{\alpha}\right)^\alpha \le \frac{e^{(\alpha-1)(\tau-\eps)-1}}{\alpha-1}.\label{eq:rdp2adp}
+\end{equation}
+\end{prop}
+
+In contrast, the standard bound \citep{DworkRV10,DworkR16,BunS16,Mironov17} is
+$
+    \delta \le e^{(\alpha-1)(\tau-\eps)}
+$.
+Note that $\frac{e^{(\alpha-1)(\tau-\eps)}}{\alpha-1} \cdot \left(1-\frac{1}{\alpha}\right)^\alpha = \frac{e^{(\alpha-1)(\tau-\eps)}}{\alpha} \cdot \left(1-\frac{1}{\alpha}\right)^{\alpha-1}$.
+Thus Proposition \ref{prop:cdp2adp} is strictly better than the standard bound for $\alpha>1$.
+Equation \ref{eq:rdp2adp} can be rearranged to
+\begin{equation}
+    \eps = \tau + \frac{\log(1/\delta) + (\alpha-1)\log(1-1/\alpha) - \log(\alpha)}{\alpha-1}.
+\end{equation}
+
+\begin{proof}
+
+
+
+
+
+
+Fix neighbouring $x,x'\in\mathcal{X}^n$ and let $Z \gets \privloss{M(x)}{M(x')}$. We have $$\ex{}{e^{(\alpha-1)Z}} =e^{(\alpha-1)\dr{\alpha}{M(x)}{M(x')}}\le e^{(\alpha-1)\tau}.$$
+By Lemma \ref{lem:pled}, our goal is to prove that $\delta \ge \ex{}{\max\{0,1-e^{\eps-Z}\}}$.
+Our approach is to pick $c>0$ such that $\max\{0,1-e^{\eps-z}\} \le c \cdot e^{(\alpha-1)z}$ for all $z \in \R$. Then $$\ex{}{\max\{0,1-e^{\eps-Z}\}} \le \ex{}{c \cdot e^{(\alpha-1)Z}} \le c \cdot e^{(\alpha-1)\tau}.$$
+We identify the smallest possible value of $c$: $$c = \sup_{z \in \R} \frac{\max\{0,1-e^{\eps-z}\}}{e^{(\alpha-1)z}} = \sup_{z \in \R} e^{z -\alpha \cdot z} - e^{\eps-\alpha \cdot z} = \sup_{z \in \R} f(z),$$ where $f(z) = e^{z -\alpha \cdot z} - e^{\eps-\alpha \cdot z}$. We have $$f'(z) = e^{z-\alpha z}(1-\alpha) - e^{\eps - \alpha z}(-\alpha) = e^{-\alpha z} (\alpha e^\eps - (\alpha-1)e^z).$$ Clearly $f'(z)=0 \iff e^z = \frac{\alpha}{\alpha-1}e^\eps \iff z = \eps - \log(1-1/\alpha)$. Thus \begin{align*}
+    c&=f(\eps-\log(1-1/\alpha))\\
+    &= \left(\frac{\alpha}{\alpha-1}e^\eps\right)^{1-\alpha} - e^\eps \cdot \left(\frac{\alpha}{\alpha-1}e^\eps\right)^{-\alpha}\\
+    &= \left(\frac{\alpha}{\alpha-1}e^\eps - e^\eps\right) \cdot \left(\frac{\alpha-1}{\alpha}\cdot e^{-\eps}\right)^\alpha\\
+    &= \frac{e^\eps}{\alpha-1} \cdot \left(1-\frac{1}{\alpha}\right)^\alpha \cdot e^{-\alpha\eps}.
+\end{align*} 
+Thus 
+\[
+  \ex{}{\max\{0,1-e^{\eps-Z}\}} \le \frac{e^\eps}{\alpha-1} \cdot \left(1-\frac{1}{\alpha}\right)^\alpha \cdot e^{-\alpha\eps} \cdot e^{(\alpha-1)\tau} 
+  = \frac{e^{(\alpha-1)(\tau-\eps)}}{\alpha-1} \cdot \left(1-\frac{1}{\alpha}\right)^\alpha 
+  = \delta.
+\]
+\end{proof}
+
+Asoodeh, Liao, Calmon, Kosut, and Sankar \cite{AsoodehLCKS20} provide an optimal conversion from R\'enyi differential privacy to approximate differential privacy -- i.e., an optimal version of Proposition~\ref{prop:cdp2adp}. Specifically, the optimal bound is
+\begin{equation}
+    \delta = \inf \left\{ \hat\delta \in [0,1] : \forall p \in (\hat\delta,1) ~~ p^\alpha(p-\hat\delta)^{1-\alpha} + (1-p)^\alpha(e^\eps-p+\hat\delta)^{1-\alpha} \le e^{(\alpha-1)(\tau -\eps)} \right\}.
+\end{equation} Clearly, the expression in Proposition~\ref{prop:cdp2adp} is simpler than this. 
+
+By taking the infimum over all divergence parameters $\alpha$, Proposition~\ref{prop:cdp2adp} entails the following conversion from concentrated differential privacy to approximate differential privacy.
+
+\begin{cor}\label{cor:cdp2adp}
+Let $M\colon \mathcal{X}^n \to \mathcal{Y}$ be a randomized algorithm satisfying $\rho$-concentrated differential privacy. 
+Then $M$ is $(\eps,\delta)$-differentially private for any $\eps\ge0$ and
+\begin{equation}
+    \delta= \inf_{\alpha \in (1,\infty)} \frac{e^{(\alpha-1)(\alpha\rho-\eps)}}{\alpha-1} \cdot \left(1-\frac{1}{\alpha}\right)^\alpha \le \inf_{\alpha \in (1,\infty)} \frac{e^{(\alpha-1)(\alpha\rho-\eps)-1}}{\alpha-1}.\label{eq:cdp2adp}
+\end{equation}
+\end{cor}
+Corollary \ref{cor:cdp2adp} should be contrasted with the standard bound \citep{DworkRV10,DworkR16,BunS16,Mironov17} of
+\begin{equation}
+    \delta = \inf_{\alpha \in (1,\infty)} e^{(\alpha-1)(\alpha\rho-\eps)} = e^{-(\eps-\rho)^2/4\rho},
+\end{equation}
+which holds when $\eps\ge\rho>0$. Bun and Steinke \cite{BunS16} prove an intermediate bound of
+\begin{equation}
+    \delta = 2\sqrt{\pi\rho} \cdot e^\eps \cdot \pr{X \gets \mathcal{N}(0,1)}{X>\frac{\eps+\rho}{\sqrt{2\rho}}}
+\end{equation}
+\paragraph{Efficient computation of $\delta$.} For the looser expression in Corollary \ref{cor:cdp2adp}, we can analytically find an optimal $\alpha$. However, we can efficiently compute a tighter numerical bound: The equality in Equation \ref{eq:cdp2adp} is equivalent to
+\begin{equation}
+    \delta = \inf_{\alpha\in(1,\infty)} e^{g(\alpha)} ~~~~~\text{ where }~~~~~ g(\alpha) = (\alpha-1)(\alpha\rho-\eps) + (\alpha-1) \cdot \log(1-1/\alpha) - \log(\alpha).
+\end{equation}
+We have 
+\begin{equation}
+    g'(\alpha)
+= (2\alpha-1)\rho - \eps + \log(1-1/\alpha) 
+\end{equation} and
+\begin{equation}
+g''(\alpha) 
+= 2\rho + \frac{1}{\alpha(\alpha-1)} > 0.
+\end{equation}
+Since $g$ is a smooth convex function with\footnote{Here we assume $\eps>\rho$, which is the setting of interest.} \begin{equation}
+    g'\left(\frac{\eps+\rho}{2\rho}\right) = 0+\log\left(\frac{\eps-\rho}{\eps+\rho}\right)<0
+\end{equation}
+and
+\begin{equation}
+    g'\left(\max\left\{\frac{\eps+\rho+1}{2\rho},2\right\}\right) \ge 1 - \log 2>0,
+\end{equation} it has a unique minimizer $\alpha_* \in \left(\frac{\eps+\rho}{2\rho},\max\{\frac{\eps+\rho+1}{2\rho},2\}\right)$. We can find the minimizer $\alpha_*$ by conducting a binary search over the interval $ \left(\frac{\eps+\rho}{2\rho},\max\{\frac{\eps+\rho+1}{2\rho},2\}\right)$. That is, we want to find $\alpha_*$ such that $g'(\alpha_*)=0$; if $\alpha<\alpha_*$, we have $g'(\alpha)<0$ and, if $\alpha>\alpha_*$, we have $g'(\alpha)>0$.
+
+
+\subsection{Sharp Approximate Differential Privacy Bounds for Multivariate Noise}
+
+Next we consider adding independent discrete Gaussians to a multivariate function. We begin with a concentrated differential privacy bound:
+
+\begin{thm}[Multivariate Discrete Gaussian Satisfies Concentrated Differential Privacy]\label{thm:priv2}
+Let $\sigma_1, \cdots, \sigma_d >0$ and $\eps > 0$.
+Let $q\colon \mathcal{X}^n \to \Z^d$ satisfy $\sum_{j \in [d]} (q_j(x)-q_j(x'))^2/\sigma_j^2\le\eps^2$ for all $x,x'\in\mathcal{X}^n$ differing on a single entry. Define a randomized algorithm $M\colon \mathcal{X}^n \to \Z^d$ by $M(x)=q(x)+Y$ where $Y_j \gets \dgauss{\sigma_j^2}$ independently for all $j \in [d]$. Then $M$ satisfies $\frac12 \eps^2$-concentrated differential privacy.
+\end{thm}
+\noindent Theorem~\ref{thm:priv2} follows from Proposition~\ref{prop:renyi}, composition of concentrated differential privacy, and Definition~\ref{defn:cdp}. If $\sigma_1 = \sigma_2 = \cdots = \sigma_d$, then the concentrated differential privacy guarantee depends only on the sensitivity of $q$ in the Euclidean norm; if the $\sigma_j$s are different, then it is a weighted Euclidean norm. Note that we only consider multivariate Gaussians with independent coordinates.
+
+It is possible to obtain an approximate differential privacy guarantee for the multivariate discrete Gaussian from Theorem \ref{thm:priv2} and Corollary \ref{cor:cdp2adp}. While this bound is reasonably tight, we will now give an exact bound:
+
+\begin{thm}
+\label{thm:priv3}
+Let $\sigma_1, \cdots, \sigma_d >0$. Let $Y_j \gets \dgauss{\sigma_j^2}$ independently for each $j \in [d]$. Let $q\colon \mathcal{X}^n \to \Z^d$. Define a randomized algorithm $M\colon \mathcal{X}^n \to \Z^d$ by $M(x) = q(x)+Y$. Let $\eps,\delta>0$. Then $M$ is $(\eps,\delta)$-differentially private if, and only if, for all $x,x' \in \mathcal{X}^n$ differing on a single entry, we have
+\begin{align}
+    \delta &\ge \ex{}{\max\left\{ 0 , 1 - \exp\left(\eps - Z \right) \right\}}\label{eq:multi_adp1}\\
+    &= \pr{}{Z > \eps} - e^\eps \cdot \pr{}{Z < -\eps}\label{eq:multi_adp2}\\
+    &=  \int_\eps^\infty e^{\eps-z} \cdot \pr{}{Z>z} ~\dx[z] \label{eq:multi_adp3},
+\end{align}
+where 
+\begin{equation}
+    Z := \sum_{j=1}^d \frac{(q(x)_j-q(x')_j)^2 + 2 (q(x)_j-q(x')_j) \cdot Y_j}{2\sigma_j^2}.
+\end{equation}
+\end{thm}
+\begin{proof}
+    Fix neighbouring $x,x' \in \mathcal{X}^n$. Without loss of generality, we may assume $q(x)=0$.
+    Following the proof of Theorem \ref{thm:approx-dp}, we will apply Lemma \ref{lem:pled}, which requires understanding the privacy loss random variable.
+    
+    Let $f\colon \Z^d \to \R$ be as in Definition \ref{defn:privloss}. That is,
+    \begin{align*}
+        f(y) &= \log\left(\frac{\pr{}{M(x)=y}}{\pr{}{M(x')=y}}\right)\\
+        &= \sum_{j=1}^d \log\left(\frac{\pr{Y_j \gets \dgauss{\sigma_j^2}}{q(x)_j+Y_j=y_j}}{\pr{Y_j \gets \dgauss{\sigma_j^2}}{q(x')_j+Y_j=y_j}}\right)\\
+        &= \sum_{j=1}^d \frac{-y_j^2 + (y_j-q(x')_j)^2}{2\sigma_j^2}\\
+        &= \sum_{j=1}^d \frac{q(x')_j^2 - 2 y_j \cdot q(x')_j}{2\sigma_j^2}.
+    \end{align*}
+    Then the privacy loss $Z \gets \privloss{M(x)}{M(x')}$ is given by \[Z=f(Y)= \sum_{j=1}^d \frac{q(x')_j^2-2q(x')_j Y_j}{2\sigma_j^2}.\]
+    Substituting this expression into Equations \ref{eq:pled1} and \ref{eq:pled3} yields Equations \ref{eq:multi_adp1} and \ref{eq:multi_adp3} respectively.
+    
+    Next we look at $Z' \gets \privloss{M(x')}{M(x)}$, which is given by \[Z' = -f(q(x')+Y) = -\sum_{j=1}^d \frac{q(x')_j^2 - 2 q(x')_j (Y_j+q(x')_j)}{2\sigma_j^2} = \sum_{j=1}^d \frac{q(x')_j^2 + 2 q(x')_j Y_j}{2\sigma_j^2}.\]
+    Noting that each $Y_j$ has a symmetric distribution, we see that $Z'$ has the same distribution as $Z$.
+    Substituting these expressions into Equation \ref{eq:pled2} yields Equation \ref{eq:multi_adp2}.
+\end{proof}
+
+Theorem \ref{thm:priv3} gives three equivalent expressions for the approximate differential privacy guarantee of the multivariate discrete Gaussian. All of these expressions are in terms of the privacy loss random variable $Z \gets \privloss{M(x)}{M(x')}$. We now sketch some algorithmic and analysis details which may be of use to practitioners interested in evaluating these expressions. Similar algorithms for privacy accounting have been developed \cite{KoskelaJPH20,GoogleComposition,ZhuDW21} and the following approach could be combined with these frameworks.
+\begin{enumerate}
+    \item Direct evaluation of the expressions is often impractical. Computing the distribution of $Z$ entails evaluating an infinite sum. Fortunately the terms decay rapidly, so the sum can be truncated, but this still leaves a number of terms that grows exponentially in the dimensionality $d$. Thus we must find more effective ways to evaluate the expressions.
+    \item The approach underlying concentrated differential privacy is to consider the moment generating function $e^{(\alpha-1)\dr{\alpha}{M(x)}{M(x')}} = \ex{}{e^{(\alpha-1)Z}}$. This provides reasonably tight upper bounds on the approximate differential privacy guarantees. However, this approach is not suitable for numerically computing exact bounds \citep{McCullagh94}.
+    \item Instead of the moment generating function, we consider the characteristic function: Let $\sigma_1, \cdots, \sigma_d >0$. Let $Y_j \gets \dgauss{\sigma_j^2}$ independently for each $j \in [d]$.
+    Let $\mu = q(x)-q(x') \in \Z^d$ and $
+    Z := \sum_{j=1}^d \frac{\mu_j^2 + 2 \mu_j \cdot Y_j}{2\sigma_j^2}.
+    $
+    The characteristic function of the discrete Gaussian can be expressed two ways. For $t \in \R$ and all $j \in [d]$, we have
+    \begin{align}
+        \ex{}{e^{\ii{}tY_j}} &= \frac{\sum_{y \in \Z} e^{\ii{}ty-y^2/2\sigma_j^2}}{\sum_{y \in \Z} e^{-y^2/2\sigma_j^2}}\label{eq:dg-cf}\\
+        &= \frac{\sum_{u \in \Z} e^{-(t-2\pi u)^2\sigma_j^2/2}}{\sum_{u \in \Z} e^{-(2\pi u)^2\sigma_j^2/2}}.\label{eq:dg-cf-poisson}
+    \end{align}
+    The equivalence of the second expression \eqref{eq:dg-cf-poisson} follows from the Poisson summation formula. When $2\pi^2\sigma_j^2 > 1/2\sigma_j^2$, then the second expression converges more rapidly; otherwise the first expression converges faster. In either case, accurately evaluating the characteristic function of the discrete Gaussian is easy.
+    
+    It is then possible to compute the characteristic function of the privacy loss:
+    \begin{align}
+        \ex{}{e^{\ii{}tZ}} &= \prod_{j=1}^d \left( e^{\ii{}t \frac{\mu_j^2}{2\sigma_j^2}}\cdot \ex{}{e^{\ii{} t \frac{\mu_j}{\sigma_j^2} Y_j}} \right).\label{eq:pl-multi}
+    \end{align}
+    
+    \item Since the discrete Gaussian is symmetric about $0$, its characteristic function is real-valued. Since the discrete Gaussian is supported on the integers, its characteristic function is periodic: $\ex{}{e^{\ii{}(t+2\pi)Y_j}} = \ex{}{e^{\ii{}tY_j}}$ for all $t \in \R$ and all $j \in [d]$.
+    
+    \item Assume there exists some $\gamma>0$ such that, for all $j \in [d]$, there exists $v \in \Z$ satisfying $1/\sigma_j^2 = \gamma \cdot v$. 
+    This assumption holds if $\sigma_j^2$ is rational for all $j \in [d]$.
+    
+    Under this assumption the privacy loss is always an integer multiple of $\gamma$ -- i.e., $\pr{}{Z \in \gamma \Z}=1$.
+    Consequently the characteristic function of the privacy loss is also periodic -- i.e., $\ex{}{e^{\ii{}(t+2\pi/\gamma)Z}} = \ex{}{e^{\ii{}tZ}}$ for all $t \in \R$.
+    
+    \item It is possible to compute the probability mass function of the privacy loss from the characteristic function:
+    \begin{equation}
+        \forall z \in \gamma \Z ~~~~~~~~~~ \pr{}{Z=z} = \frac{\gamma}{2\pi} \int_0^{2\pi/\gamma} e^{-itz} \cdot \ex{}{e^{\ii{}tZ}} \dx[t] \label{eq:pmf-cf}
+    \end{equation}
+    This can form the basis of an algorithm for computing the guarantee of Theorem \ref{thm:priv2}: The characteristic function can be easily computed from Equations \ref{eq:dg-cf}, \ref{eq:dg-cf-poisson}, and \ref{eq:pl-multi} and then we numerically integrate it according to Equation \ref{eq:pmf-cf} to compute the probability distribution of the privacy loss and finally we substitute this into Equation \ref{eq:multi_adp1}.
+    
+    The downside of this approach is that (i) it requires numerical integration and (ii) it only gives us the probabilities one at a time. Both of these downsides could make the procedure quite slow.
+    
+    \item We propose to use the discrete Fourier transform (a.k.a.~fast Fourier transform) to avoid these downsides.
+    
+    Effectively, we will compute the distribution of $Z$ modulo $m\gamma$ for some integer $m$. (For fast computation, $m$ should be a power of two.) Call this modular random variable $Z_m$, so that \[\pr{}{Z_m=z} = \sum_{k \in \Z} \pr{}{Z=z+m\gamma k}.\]
+    Rather than taking $Z_m$ to be supported on $\{0,\gamma,\cdots,(m-1)\gamma\}$ as is usual, we will take $Z_m$ to be supported on $\{(1-m/2)\gamma,(2-m/2)\gamma, \cdots, (m/2-1)\gamma,(m/2)\gamma\}$.
+    
+    We will choose $m$ large enough so that $\pr{}{Z \ne Z_m}$ is sufficiently small.
+    
+    \item The inverse discrete Fourier transform allows us to compute the probability mass of $Z_m$ from the characteristic function of $Z$ (which is identical to the characteristic function of $Z_m$ at the points of interest):
+    \begin{equation}
+        \pr{}{Z_m=z} = \frac{1}{m} \sum_{k=0}^{m-1} e^{-i 2\pi zk / m\gamma} \cdot \ex{}{e^{\ii{} 2\pi k Z/m\gamma}}\\
+    \end{equation}
+    The fast Fourier transform uses a divide-and-conquer approach to allow us to compute the entire distribution of $Z_m$ in nearly linear time from the values $\ex{}{e^{\ii{}2\pi k Z / m\gamma}}$ for $k=0 \cdots m-1$. These values can be easily computed using Equations \ref{eq:dg-cf-poisson} and \ref{eq:pl-multi}.
+    
+    \item Now we can compute an upper bound on the approximate differential privacy guarantee \eqref{eq:multi_adp1} using the inequality
+    \begin{equation}
+        \delta = \ex{}{\max\{0, 1-e^{\eps-Z}\}} \le \ex{}{\max\{0, 1-e^{\eps-Z_m}\}} + \pr{}{Z>Z_m}.
+    \end{equation}
+    
+    \item It only remains to bound $\pr{}{Z>Z_m}$. For $\alpha>1$, we have
+    \begin{equation}
+        \pr{}{Z>Z_m} = \pr{}{Z > (m/2)\gamma} \le \ex{}{e^{(\alpha-1)(Z-(m/2)\gamma)}} = e^{(\alpha-1)(\dr{\alpha}{M(x)}{M(x')} -m \gamma /2 )}.
+    \end{equation}
+    From the concentrated differential privacy analysis, we have $\dr{\alpha}{M(x)}{M(x')} \le \alpha \cdot \sum_j^d \frac{\mu_j^2}{2\sigma_j^2}$ for all $\alpha>1$. Assuming $m\gamma > \sum_j^d \mu_j^2/\sigma_j^2$, we can set $\alpha = \frac12 + \frac{m\gamma}{2\sum_j^d \mu_j^2/\sigma_j^2}>1$ to obtain the bound 
+    \begin{equation}
+        \pr{}{Z>Z_m} \le \exp\left(\frac{-\left(m\gamma - \sum_j^d \mu_j^2/\sigma_j^2\right)^2}{8\sum_j^d \mu_j^2/\sigma_j^2}\right).\label{eq:modular-fail}
+    \end{equation}
+    The value of $m$ should be chosen such that this error term is tolerable. For example, if the intent is to obtain an approximate $(\eps,\delta)$-differential privacy bound with $\delta=10^{-6}$, then we should choose $m$ large enough such that Equation \ref{eq:modular-fail} is less than, say, $10^{-9}$.
+    
+    We should set $m=\frac{1}{\gamma} \cdot \left(\sqrt{8 \log(1/\delta') \sum_j^d \mu_j^2/\sigma_j^2} + \sum_j^d \mu_j^2/\sigma_j^2\right)$, where $\delta'>0$ is the error tolerance in our final estimate of $\delta$.
+    
+    To obtain lower bounds on $\delta$, we would use 
+    \begin{equation}
+        \delta = \ex{}{\max\{0,1-e^{\eps-Z}\}} \ge \ex{}{\max\{0,1-e^{\eps-Z_m}\}} - \pr{}{Z<Z_m}
+    \end{equation} 
+    and, for all $\alpha>1$, we have 
+    \begin{equation}
+        \pr{}{Z<Z_m} = \pr{}{Z \le -\gamma m / 2} \le \ex{}{e^{-\alpha(Z + \gamma m / 2)}} = e^{(\alpha-1)\dr{\alpha}{M(x')}{M(x)} - \alpha\gamma m / 2}.
+    \end{equation}
+    
+    \item The algorithm we have sketched above should be relatively efficient and numerically stable. The fast Fourier transform requires $O(m \log m)$ operations. We must evaluate the characteristic function of $Z$ at $m$ points; each evaluation requires evaluating the characteristic function of $d$ discrete Gaussians and multiplying the results together. (Of course, we must only evaluate coordinates where $\mu_j \ne 0$.) The characteristic function of the discrete Gaussian has a very rapidly converging series representation, so this should be close to a constant number of operations.
+    
+    The discrete Fourier transform is also numerically stable, since it is a unitary operation. (Indeed this is the advantage of the characteristic function/Fourier transform over the moment generating function/Laplace transform.)
+    
+    \item The main problem for this algorithm would be if $\gamma$ is extremely small (as the space and time used grows linearly with $1/\gamma$) or if the assumption that $\gamma$ exists fails. This depends on the choice of the parameters $\sigma_1, \cdots, \sigma_d$.
+    
+    In this case, one solution is to ``bucket'' the privacy loss \citep{KoskelaJPH20,GoogleComposition}. That is, rather than relying on the privacy loss naturally falling on a discrete grid $\gamma \Z$ as we do, we artificially round it to such a grid. Rounding up results in computing an upper bound on $\delta$, while rounding down gives a lower bound. The advantage of this bucketing approach is that we have direct control over the granularity of the approximation. The disadvantage is that we cannot use the Poisson summation formula \eqref{eq:dg-cf-poisson} to speed up evaluation of the characteristic function.
+    
+ \end{enumerate}
+
+
+
+
+\section{Utility}
+\label{sec:utility}
+
+We now consider how much noise the discrete Gaussian adds. As a comparison point, we consider both the continuous Gaussian and, in the interest of a fair comparison, the rounded Gaussian~--~i.e., a sample from the continuous Gaussian rounded to the nearest integral value.
+In Figure \ref{fig:plots}, we show how these compare numerically. We see that the tail of the rounded Gaussian stochastically dominates that of the discrete Gaussian. In other words, the utility of the discrete Gaussian is strictly better than the rounded Gaussian (although not by much for reasonable values of $\sigma$, i.e., those which are not very small).
+
+\begin{figure}[h!]
+    \centering
+    \begin{minipage}{0.64\textwidth}
+        \includegraphics[width=\textwidth]{dg_tail.png}
+    \end{minipage}
+    \hspace{-10pt}
+    \begin{minipage}{0.36\textwidth}
+        \includegraphics[width=\textwidth]{dg_var.png}
+    \end{minipage}
+    \caption{Comparison of tail bounds and variance for continuous, discrete, and rounded Gaussians.}
+    \label{fig:plots}
+\end{figure}
+
+To obtain analytic bounds, we begin by bounding the moment generating function:
+\begin{lem}
+Let $t,\sigma\in\R$ with $\sigma>0$. Then $\ex{X \gets \dgauss{\sigma^2}}{e^{tX}}\le e^{t^2\sigma^2/2}$.
+\end{lem}
+\noindent For comparison, recall that the continuous Gaussian satisfies the same bound, but with equality: $\ex{X \gets \mathcal{N}(0,\sigma^2)}{e^{tX}}=e^{t^2\sigma^2/2}$ for all $t,\sigma\in\R$ with $\sigma>0$.
+\begin{proof}
+By Lemma \ref{lem:poisson},
+\begin{align*}
+    \ex{X \gets \dgauss{\sigma^2}}{e^{tX}} &= \frac{\sum_{x \in \Z} e^{tx-x^2/2\sigma^2}}{\sum_{y \in \Z} e^{-y^2/2\sigma^2}} = \frac{\sum_{x \in \Z} e^{-(x-t\sigma^2)^2/2\sigma^2} \cdot e^{t^2\sigma^2/2}}{\sum_{y \in \Z} e^{-y^2/2\sigma^2}} \le e^{t^2\sigma^2/2}.
+\end{align*}
+\end{proof}
+The bound on the moment generating function shows that the discrete Gaussian is subgaussian \citep{Rivasplata12}. Standard facts about subgaussian random variables yield bounds on the variance and tails:
+\begin{cor}
+\label{cor:bounds}
+Let $X \gets \dgauss{\sigma^2}$. Then $\var{}{X}\le \sigma^2$ and $\pr{}{X\ge\lambda} \le e^{-\lambda^2/2\sigma^2}$ for all $\lambda \ge 0$.
+\end{cor}
+Thus the variance of the discrete Gaussian is at most that of the corresponding continuous Gaussian and we also have subgaussian tail bounds.
+In fact, it is possible to obtain slightly tighter bounds, showing that the variance of the discrete Gaussian is \emph{strictly less} than that of the continuous Gaussian. We elaborate in the following subsections, providing tighter variance and tail bounds. However, these improvements are most pronounced for small $\sigma$, which is not the typical regime of interest for differential privacy. Nonetheless, these facts may be of independent interest. 
+
+\subsection{A Few Good Facts}
+\label{sec:good-facts}
+Here, we state and derive some basic and useful facts about the discrete Gaussian, which will be useful in proving tighter bounds. 
+We start with the expectation of $\discN(\mu,\sigma^2)$. It is straightforward to see by a change of index that, for $\mu\in\Z$, 
+one has $\ex{}{\discN(\mu,\sigma^2)} = \mu$; however, the case $\mu\notin\Z$ is not as immediate. Our first result states that, 
+indeed, $\discN(\mu,\sigma^2)$ has mean $\mu$ even for non-integer $\mu$:
+\begin{fact}[Expectation]\label{fact:expectation}
+    For all $\sigma \in \R$ with $\sigma>0$, and all $\mu\in\R$,
+    $
+       \ex{}{\discN(\mu,\sigma^2)} = \mu\,.
+    $
+\end{fact}
+\begin{proof}
+By the Poisson summation formula \citep{poisson,poisson2},
+\[
+        \ex{}{\discN(\mu,\sigma^2)}
+        = \frac{\sum_{n\in\Z} n e^{-(n-\mu)^2/(2\sigma^2)}}{\sum_{n\in\Z} e^{-(n-\mu)^2/(2\sigma^2)}}
+        = \frac{\sum_{n\in\Z} \hat{f}(n)}{\sum_{n\in\Z} \hat{g}(n)},
+\]
+where $f(x) = xe^{-(n-\mu)^2/(2\sigma^2)}$ and $g(x) = e^{-(n-\mu)^2/(2\sigma^2)}$. For $t\in\R$, we can compute their Fourier transforms as
+\begin{align*}
+    \hat{f}(t) &= \int_{\R} f(x) e^{-2\pi\ii{}x t}\,\dx = \sqrt{2\pi\sigma^2}(\mu-2\pi\ii{}\sigma^2 t) e^{-2\pi^2t^2\sigma^2 - 2\pi\ii{}t \mu}\\
+    \hat{g}(t) &= \int_{\R} g(x) e^{-2\pi\ii{}x t}\,\dx = \sqrt{2\pi\sigma^2}e^{-2\pi^2t^2\sigma^2 - 2\pi\ii{}t \mu}
+\end{align*}
+so that
+\[
+        \ex{}{\discN(\mu,\sigma^2)}
+        = \frac{\mu \sum_{n\in\Z}  e^{-2\pi^2n^2\sigma^2 - 2\pi\ii{}n \mu}  -  2\pi\ii{}\sigma^2\sum_{n\in\Z} n e^{-2\pi^2n^2\sigma^2 - 2\pi\ii{}n \mu} }{\sum_{n\in\Z} e^{-2\pi^2n^2\sigma^2 - 2\pi\ii{}n \mu} }
+        = \mu,
+\]
+as the second sum in the numerator is zero.
+\end{proof}
+
+We now turn to the normalization constant of $\discN(0,\sigma^2)$, comparing it to the normalization constant $\sqrt{2\pi\sigma^2}$ of the corresponding continuous Gaussian.
+\begin{fact}[Normalization constant]\label{fact:normalization:constant}
+    For all $\sigma \in \R$ with $\sigma>0$,
+    \begin{equation}
+        \max\{ \sqrt{2\pi\sigma^2} , 1\}
+        \leq \sum_{n\in\Z} e^{-n^2/(2\sigma^2)} 
+        \leq \sqrt{2\pi\sigma^2} + 1\,.
+    \end{equation}
+\end{fact}
+\begin{proof}
+We first show the lower bound. Clearly $\sum_{n\in\Z} e^{-n^2/(2\sigma^2)} \ge e^{-0^2/2\sigma^2}=1$. By the Poisson summation formula,
+\[
+        \sum_{n\in\Z} e^{-n^2/(2\sigma^2)} 
+        = \sum_{n\in\Z} \sqrt{2\pi\sigma^2} \cdot e^{-2\pi^2\sigma^2n^2} 
+        \geq \sqrt{2\pi\sigma^2} \cdot 1.
+\]
+As for the upper bound, it follows from a standard comparison between series and integral:
+\[
+        \sum_{n\in\Z} e^{-n^2/(2\sigma^2)} 
+        = 1+ 2\sum_{n=1}^\infty e^{-n^2/(2\sigma^2)}
+        \leq 1+ 2\sum_{n=1}^\infty \int_{n-1}^n e^{-x^2/(2\sigma^2)} \dx 
+        = 1+ 2\int_{0}^\infty e^{-x^2/(2\sigma^2)} \dx\,. 
+\]
+\end{proof}
+The above bounds, albeit simple to obtain, are not quite as tight as they could be. We state below a refinement, which can be found, e.g., in~\cite[Claim~2.8.1]{Stephens-Davidowitz17}:
+\begin{fact}[Normalization constant, refined]\label{fact:normalization:constant:better}
+    For all $\sigma \in \R$ with $\sigma>0$,
+    \begin{equation}
+        \sqrt{2\pi\sigma^2} \cdot (1+2e^{-2\pi^2\sigma^2}) 
+            \leq \sum_{n\in\Z} e^{-n^2/(2\sigma^2)} 
+            \leq \sqrt{2\pi\sigma^2} \cdot (1+2e^{-2\pi^2\sigma^2}) + e^{-2\pi^2\sigma^2}
+    \end{equation}
+    and
+    \begin{equation}
+        1+2e^{-1/(2\sigma^2)}
+            \leq \sum_{n\in\Z} e^{-n^2/(2\sigma^2)} 
+            \leq 1+2e^{-1/(2\sigma^2)} + \sqrt{2\pi\sigma^2} e^{-1/(2\sigma^2)}
+    \end{equation}
+    The first set of bounds is better for $\sigma \geq \frac{1}{\sqrt{2\pi}}$, and the second for $\sigma < \frac{1}{\sqrt{2\pi}}$.
+\end{fact}
+\noindent The bounds obtained in Fact~\ref{fact:normalization:constant:better} are depicted in the figure below.
+\begin{figure}[ht]
+    \centering
+    \includegraphics[width=1.00\textwidth]{normalizationconstant}
+    \caption{Bounds from Fact~\ref{fact:normalization:constant:better} on the normalization constant $\sum_{n\in\Z} e^{-n^2/(2\sigma^2)}$, as a function of $\sigma$. Note that the normalization constant of the continuous Gaussian, $\sqrt{2\pi\sigma^2}$ (in dark orange) becomes a very accurate approximation for $\sigma \gg 1$; however, for $\sigma \ll 1$, it is not, as the upper and lower bound from Fact~\ref{fact:normalization:constant:better} both converge towards $1$, as expected. Interestingly, we see that the lower bound (green) empirically seems to be nearly tight, as it appears to coincide with the exact expression of the normalization constant (dotted blue) for all $\sigma >0$. The discontinuity in the upper bound (light orange) happens at $\sigma=\frac{1}{\sqrt{2\pi}}$.}
+    \label{fig:normalization:constant}
+\end{figure}
+\subsection{Tighter Variance and Tail Bounds}
+\label{sec:tighter-bounds}
+We now analyze the variance of the discrete Gaussian, showing that it is stricty smaller than that of the corresponding continuous Gaussian (and asymptotically the same), with a much better variance for small $\sigma$.
+\begin{prop}[Variance]
+  \label{prop:variance:upper:bound}
+    For all $\sigma \in \R$ with $\sigma>0$,
+\begin{equation}
+\var{}{\discN(0,\sigma^2)} \leq \sigma^2 \left(1 - \frac{4\pi^2\sigma^2}{e^{4\pi^2\sigma^2}-1} \right)<\sigma^2
+\end{equation}
+Moreover, if $\sigma^2\le 1/3$ then $\var{}{\discN(0,\sigma^2)} \le 3 \cdot e^{-1/2\sigma^2}$.
+\end{prop}
+To prove Proposition \ref{prop:variance:upper:bound} we use the following lemma which relates \emph{upper} bounds on the variance of a discrete Gaussian to \emph{lower} bounds on it, and vice-versa.
+\begin{lem}\label{lem:upper=lower}
+For $\sigma>0$, 
+\begin{equation}
+    \label{eq:relation:variances}
+\var{}{\discN(0,\sigma^2)} = \sigma^2 (1 - 4\pi^2\sigma^2\var{}{\discN(0,1/(4\pi^2\sigma^2))} )\,.
+\end{equation}
+\end{lem}
+\begin{proof}
+By applying the Poisson summation formula to both numerator and denominator of the variance, we have
+\begin{align*}
+    \var{}{\discN(0,\sigma^2)} 
+    &= \frac{\sum_{n\in \Z} n^2 e^{-n^2/(2\sigma^2)}}{\sum_{n\in\Z} e^{-n^2/(2\sigma^2)}}
+    = \frac{\sum_{n\in \Z} f(n)}{\sum_{n\in \Z} g(n)}
+    = \frac{\sum_{n\in \Z} \hat{f}(n)}{\sum_{n\in \Z} \hat{g}(n)}
+\end{align*}
+where $f(x) = x^2 e^{-x^2/(2\sigma^2)}$, $g(x) = e^{-x^2/(2\sigma^2)}$. Now, for $t\in\R$, we can compute
+\begin{align*}
+    \hat{f}(t) &= \int_{\R} f(x) e^{-2\pi\ii{}x t}\,\dx = \sqrt{2\pi} \sigma^3 e^{-2\pi^2t^2\sigma^2} (1- 4\pi^2t^2\sigma^2)\\
+    \hat{g}(t) &= \int_{\R} g(x) e^{-2\pi\ii{}x t}\,\dx = \sqrt{2\pi} \sigma e^{-2\pi^2t^2\sigma^2}.
+\end{align*}
+Thus
+\begin{align*}
+    \var{}{\discN(0,\sigma^2)} 
+    &= \sigma^2\frac{\sum_{n\in \Z} e^{-2\pi^2n^2\sigma^2} (1- 4\pi^2n^2\sigma^2) }{\sum_{n\in \Z} e^{-2\pi^2n^2\sigma^2}}
+    = \sigma^2\left( 1 - 4\pi^2\sigma^2\frac{\sum_{n\in \Z} n^2e^{-2\pi^2n^2\sigma^2} }{\sum_{n\in \Z} e^{-2\pi^2n^2\sigma^2}}\right) \\
+    &= \sigma^2\left( 1 - 4\pi^2\sigma^2\frac{\sum_{n\in \Z} n^2 e^{-n^2/(2\tau^2)} }{\sum_{n\in \Z} e^{-n^2/(2\tau^2)}}\right)
+    = \sigma^2\left( 1 - 4\pi^2\sigma^2\var{}{\discN(0,\tau^2)} \right)
+\end{align*}
+where we set $\tau \eqdef \frac{1}{2\pi\sigma}$.
+\end{proof}
+
+Next we have a lower bound on the variance. 
+
+\begin{prop}[Universal Variance Lower Bound]\label{prop:variance:general:lower:bound}
+Let $X$ be a distribution on $\R$ such that $\dr{2}{X+1}{X} \le \varepsilon^2$. Then
+\begin{equation}
+    \var{}{X} \geq \frac{1}{e^{\varepsilon^2}-1}
+\end{equation}
+\end{prop}
+\begin{proof}
+We follow the proof Lemma C.2 of Bun and Steinke \cite{BunS16}. For notational simplicity we assume $X$ has a probability density with respect to the Lesbesgue measure on the reals, which we abusively denote by $\pr{}{X=x}$. Let $f(x)=\log(\pr{}{X+1=x}/\pr{}{X=x})$ -- i.e., $f$ is the logarithm of the Radon-Nikodym derivative of the shifted distribution $X+1$ with respect to the distribution of $X$. Then $$e^{\dr{2}{X+1}{X}} = \int_\R \pr{}{X+1=x}^2 \pr{}{X=x}^{-1} \mathrm{d}x = \int_\R \left(\frac{\pr{}{X+1=x}}{\pr{}{X=x}}\right)^2 \pr{}{X=x} \mathrm{d}x = \ex{}{e^{2f(X)}}$$
+and $$\ex{}{X+1} = \int_\R x \pr{}{X+1=x} \mathrm{d}x = \int_\R x e^{f(x)} \pr{}{X=x} \mathrm{d}x = \ex{}{X \cdot e^{f(X)}}.$$
+We also have $$\ex{}{e^{f(X)}} = \int_\R \frac{\pr{}{X+1=x}}{\pr{}{X=x}} \pr{}{X=x} \mathrm{d}x = \int_\R \pr{}{X=x} \mathrm{d}x = 1.$$
+By Cauchy-Schwarz, $$1=\ex{}{X+1}-\ex{}{X} = \ex{}{X \cdot (e^{f(X)}-1)} \le \sqrt{\ex{}{X^2} \cdot \ex{}{(e^{f(X)}-1)^2}}.$$
+This rearranges to give
+$$\ex{}{X^2} \ge \frac{1}{\ex{}{(e^{f(X)}-1)^2}} = \frac{1}{\ex{}{e^{2f(X)}-2e^{f(X)}+1}}=\frac{1}{e^{\dr{2}{X+1}{X}}-1}.$$
+\end{proof}
+
+The discrete Gaussian $\dgauss{1/\varepsilon^2}$ satisfies the hypotheses of Proposition \ref{prop:variance:general:lower:bound} (by Proposition \ref{prop:renyi}), which yields the following corollary.
+\begin{cor}\label{cor:dgauss_var}
+For all $\sigma>0$, 
+\begin{equation}
+    \var{X \gets \dgauss{\sigma^2}}{X} \ge \frac{1}{e^{1/\sigma^2}-1}
+\end{equation}
+\end{cor}
+We emphasize that the lower bound of Proposition \ref{prop:variance:general:lower:bound} is not specific to the discrete Gaussian. It applies to any distribution $X$ such that adding $X$ to a sensitivity-1 function provides $\frac12\varepsilon^2$-concentrated differential privacy.
+
+
+
+\begin{proof}[Proof of Proposition \ref{prop:variance:upper:bound}]
+Combining Lemma \ref{lem:upper=lower} with Proposition \ref{prop:variance:general:lower:bound} (specifically, Corollary \ref{cor:dgauss_var}) yields the first claim:
+\[
+\var{}{\discN(0,\sigma^2)} = \sigma^2 (1 - 4\pi^2\sigma^2\var{}{\discN(0,1/(4\pi^2\sigma^2))} ) \leq \sigma^2 \left(1 - \frac{4\pi^2\sigma^2}{e^{4\pi^2\sigma^2}-1} \right).
+\]
+
+Now we establish the last part of the proposition. We have $(m+1)^2\ge 2m+1$ and, hence,
+\begin{align*}
+    \var{}{\discN(0,\sigma^2)} &= \frac{\sum_{n \in \Z} n^2 \cdot e^{-n^2/2\sigma^2}}{\sum_{n \in \Z} e^{-n^2/2\sigma^2}} \le \sum_{n \in \Z} n^2 \cdot e^{-n^2/2\sigma^2} = 2\sum_{m=0}^\infty (m+1)^2 \cdot e^{-(m+1)^2/2\sigma^2}\\
+    &\le 2\sum_{m=0}^\infty (m+1)^2 \cdot e^{-(2m+1)/2\sigma^2} = \frac{2}{e^{1/2\sigma^2}} \sum_{m=0}^\infty (m+1)^2 e^{-m/\sigma^2}.
+\end{align*}
+It only remains to show that $\sum_{m=0}^\infty (m+1)^2 e^{-m/\sigma^2} \leq 3/2$ when $\sigma^2\le1/3$. For $x \in (-1,1)$, one can show that $\sum_{m=0}^\infty (m+1)^2 x^{m} = \frac{1+x}{(1-x)^3}$. Set $x=e^{-1/\sigma^2}$ to conclude.
+\end{proof}
+
+Next we prove tail bounds:
+
+\begin{prop}\label{prop:tail:bound:gaussian}
+For all $m \in \Z$ with $m \ge 1$ and all $\sigma \in \R$ with $\sigma>0$, 
+\begin{equation}
+    \pr{X \gets \dgauss{\sigma^2}}{X \ge m} \le \pr{X \gets \mathcal{N}(0,\sigma^2)}{X \ge m-1}.
+\end{equation}
+Moreover, if $\sigma \geq 1/\sqrt{2\pi}$, we have
+\begin{equation}
+    \pr{X \gets \dgauss{\sigma^2}}{X \ge m} \ge \frac{1}{1+3e^{-2\pi^2\sigma^2}}\pr{X \gets \mathcal{N}(0,\sigma^2)}{X \ge m}.
+\end{equation}
+\end{prop}
+\begin{proof}
+We have $\pr{X \gets \dgauss{\sigma^2}}{X \ge m} = \frac{\sum_{k=m}^\infty e^{-k^2/2\sigma^2}}{\sum_{\ell\in \Z} e^{-\ell^2/2\sigma^2}}$. 
+By Fact~\ref{fact:normalization:constant}, the denominator is at least $\sqrt{2\pi\sigma^2}$.
+For the numerator, we have 
+\[
+    \sum_{k=m}^\infty e^{-k^2/2\sigma^2} 
+    = \int_{m-1}^\infty e^{-\lceil x \rceil^2/2\sigma^2} \dx 
+    \le \int_{m-1}^\infty e^{-x^2/2\sigma^2}\dx 
+    = \sqrt{2\pi\sigma^2}\cdot\pr{X \gets \mathcal{N}(0,\sigma^2)}{X \ge m-1}.
+\]
+Turning to the lower bound, suppose $\sigma \geq 1/\sqrt{2\pi}$; by Fact~\ref{fact:normalization:constant:better}, we have $\sum_{\ell\in \Z} e^{-\ell^2/2\sigma^2}\leq \sqrt{2\pi\sigma^2}\cdot(1+3e^{-2\pi^2\sigma^2})$, which combined with
+\[
+    \sum_{k=m}^\infty e^{-k^2/2\sigma^2} 
+    = \int_{m}^\infty e^{-\lfloor x \rfloor^2/2\sigma^2} \dx 
+    \ge \int_{m}^\infty e^{-x^2/2\sigma^2}\dx 
+    = \sqrt{2\pi\sigma^2}\cdot\pr{X \gets \mathcal{N}(0,\sigma^2)}{X \ge m}
+\]
+gives the claim.
+\end{proof}
+Note that the above proposition focuses on upper tail bounds, but by symmetry of the discrete Gaussian one immediately gets similar lower tail bounds. The upshot is that, up to a small shift or $(1+o(1))$ multiplicative factor, discrete and continuous Gaussians display the same tails.
+
+One can actually slightly refine the above upper bound, by comparing the discrete Gaussian to the \emph{rounded} Gaussian $\roundN(0,\sigma^2)$, obtained by rounding a standard continuous Gaussian to the nearest integer:
+\begin{prop}\label{prop:upper:bound:gaussian:2}
+For all $m \in \Z$ with $m \ge 1$ and all $\sigma \in \R$ with $\sigma>0$, 
+\[
+    \pr{X \gets \dgauss{\sigma^2}}{X \ge m} 
+\le \pr{X \gets \roundN(0,\sigma^2)}{X \ge m} 
+            + \frac{1}{2}\pr{X \gets \dgauss{\sigma^2}}{X = m}\,.
+\]
+\end{prop}
+\begin{proof}
+On the one hand, by definition of a rounded Gaussian, we have
+\[
+\sqrt{2\pi\sigma^2}\pr{X \gets \roundN(0,\sigma^2)}{X \ge m}
+= \int_{m-1/2}^\infty e^{-x^2/(2\sigma^2)}\, \dx
+= \int_{m-1/2}^m e^{-x^2/(2\sigma^2)}\, \dx + \int_{m}^\infty e^{-x^2/(2\sigma^2)}\, \dx\,;
+\]
+on the other hand, we have
+\[
+    \sqrt{2\pi\sigma^2}\pr{X \gets \dgauss{\sigma^2}}{X \ge m+1} 
+    = \sqrt{2\pi\sigma^2}\frac{\sum_{n=m+1}^\infty e^{-n^2/(2\sigma^2)}}{\sum_{n\in\Z} e^{-n^2/(2\sigma^2)}} \leq \sum_{n=m+1}^\infty e^{-n^2/(2\sigma^2)}
+\]
+by Fact~\ref{fact:normalization:constant}. Similarly as before, we can write
+\begin{align*}
+\sum_{n=m+1}^\infty e^{-n^2/(2\sigma^2)}
+&\leq \sum_{n=m+1}^\infty \int_{n-1}^n e^{-x^2/(2\sigma^2)}\,\dx
+= \int_{m}^\infty e^{-x^2/(2\sigma^2)}\,\dx
+\end{align*}
+using monotonicity of $x\mapsto e^{-x^2/(2\sigma^2)}$ on $[0,\infty)$. Combining the three equations above gives
+\begin{align*}
+    \pr{X \gets \dgauss{\sigma^2}}{X \ge m} 
+    &\leq \pr{X \gets \dgauss{\sigma^2}}{X = m} + \pr{X \gets \roundN(0,\sigma^2)}{X \ge m} - \frac{1}{\sqrt{2\pi\sigma^2}}\int_{m-1/2}^m e^{-x^2/(2\sigma^2)}\, \dx
+     \\
+    &\leq \pr{X \gets \dgauss{\sigma^2}}{X = m} 
+    + \pr{X \gets \roundN(0,\sigma^2)}{X \ge m} - \frac{1}{2}\frac{e^{-m^2/(2\sigma^2) }}{\sum_{n\in\Z} e^{-n^2/(2\sigma^2)} }\\
+    &= \frac12 \pr{X \gets \dgauss{\sigma^2}}{X = m} 
+    + \pr{X \gets \roundN(0,\sigma^2)}{X \ge m},
+\end{align*}
+as $\int_{m-1/2}^m e^{-x^2/(2\sigma^2) }\geq \frac{1}{2}e^{-m^2/(2\sigma^2) }$ and $\sum_{n\in\Z} e^{-n^2/(2\sigma^2)} \geq \sqrt{2\pi\sigma^2}$ by Fact \ref{fact:normalization:constant}.
+\end{proof}
+We highlight the fact that comparing with the rounded Gaussian, as the above proposition does, is meaningful, since by postprocessing any differential privacy guarantee implied by adding rounded Gaussian noise to discrete data is at least as good as that implied by adding continuous Gaussian noise to the same discrete data.
+
+\subsection{Other Discretizations, and Convergence to the Continuous Gaussian}
+\label{sec:other-discs}
+Although we focused on this paper on the discrete Gaussian over $\Z$, one can of course consider different discretizations, such as the discrete Gaussian over $\alpha\Z := \{\alpha z : z \in \Z \}$ for some fixed $\alpha>0$. We denote this distribution by $\discparamN{\alpha}(\mu,\sigma^2)$. It is defined by
+\begin{equation}
+\forall x \in \alpha\Z ~~~~~ \pr{X \gets \discparamN{\alpha}(\mu,\sigma^2)}{X=x}=\frac{e^{-(x-\mu)^2/2\sigma^2}}{\sum_{y \in \alpha\Z} e^{-(y-\mu)^2/2\sigma^2}}.
+\end{equation}
+It is immediate that
+\begin{equation}\label{eq:discrete:gaussian:alpha:relation}
+\forall x \in \alpha\Z ~~~~~ \pr{X \gets \discparamN{\alpha}(\mu,\sigma^2)}{X=x}=\pr{X \gets \discN(\frac{\mu}{\alpha}, \frac{\sigma^2}{\alpha^2})}{X=\frac{x}{\alpha}}.
+\end{equation}
+ In particular, all our results on the (standard) discrete Gaussian will translate to the discrete Gaussian over $\alpha\Z$, up to that change of the parameters $\mu$ and $\sigma$.
+ 
+ Further, one would expect than, as $\alpha \to 0^+$, the discrete Gaussian $\discparamN{\alpha}(0,\sigma^2)$ converges to $\mathcal{N}(0,\sigma^2)$. We show that this is indeed the case:
+ \begin{prop}
+    For all $\sigma \in \R$ with $\sigma>0$, as $\alpha \to 0^+$ the discrete Gaussian $\discparamN{\alpha}(0,\sigma^2)$ converges in distribution to the continuous Gaussian $\mathcal{N}(0,\sigma^2)$.
+ \end{prop}
+ \begin{proof}
+ Fix any $0 < \alpha \leq \sqrt{2\pi\sigma^2}$. By Equation~\ref{eq:discrete:gaussian:alpha:relation}, for any $x \in \alpha\Z$, we have
+ $
+      \pr{X \gets \discparamN{\alpha}(0,\sigma^2)}{X\leq x}  = \pr{X \gets \discN(0, \frac{\sigma^2}{\alpha^2})}{X\leq x/\alpha }  
+ $, and so, by Proposition~\ref{prop:tail:bound:gaussian},
+ \[
+         \pr{X \gets \mathcal{N}(0,\frac{\sigma^2}{\alpha^2})}{\alpha X \leq x-\alpha} \leq \pr{X \gets \discparamN{\alpha}(0,\sigma^2)}{X\leq x} \leq \frac{1}{1+3e^{-2\pi^2\sigma^2/\alpha^2}}\pr{X \gets \mathcal{N}(0,\frac{\sigma^2}{\alpha^2})}{\alpha X \le x}
+ \]
+ or, equivalently,
+ \[
+         \pr{Y \gets \mathcal{N}(0,\sigma^2)}{Y \leq x-\alpha} \leq \pr{X \gets \discparamN{\alpha}(0,\sigma^2)}{X\leq x} \leq \frac{1}{1+3e^{-2\pi^2\sigma^2/\alpha^2}}\pr{Y \gets \mathcal{N}(0,\sigma^2)}{Y \le x}\,.
+ \]
+ Both sides converge to $\pr{Y \gets \mathcal{N}(0,\sigma^2)}{Y \leq x}$ as $\alpha \to 0^+$. \end{proof}
+  
+  
+ In applications where query values are not naturally discrete, it is necessary to round them before adding discrete noise. A finer discretization (i.e., smaller $\alpha$) entails less error being introduced by the rounding.
+
+
+\section{Discrete Laplace}
+\label{sec:dlap}
+We now compare the discrete Gaussian with the most obvious alternative -- the discrete Laplace. But first we give a formal definition and state some relevant facts.
+
+\begin{defi}[Discrete Laplace]
+Let $t > 0$. The discrete Laplace distribution with scale parameter $t$ is denoted $\discL(t)$. It is a probability distribution supported on the integers and defined by 
+\begin{equation}
+\forall x \in \Z, ~~~~~ \pr{X \gets \discL(t)}{X=x}=\frac{e^{1/t}-1}{e^{1/t}+1} \cdot e^{-|x|/t}.
+\end{equation}
+\end{defi}
+
+The discrete Laplace (also known as the \emph{two-sided geometric}) was introduced into the differential privacy literature by Ghosh, Roughgarden, and Sundararajan \cite{GhoshRS12}, who showed that it satisfies strong optimality properties.
+
+\begin{lem}[Discrete Laplace Privacy]
+Let $\Delta,\varepsilon>0$. Let $q\colon \mathcal{X}^n \to \Z$ satisfy $|q(x)-q(x')|\le\Delta$ for all $x,x'\in\mathcal{X}^n$ differing on a single entry. Define a randomized algorithm $M\colon \mathcal{X}^n \to \Z$ by $M(x)=q(x)+Y$ where $Y \gets \discL(\Delta/\varepsilon)$. Then $M$ satisfies $(\varepsilon,0)$-differential privacy.
+\end{lem}
+
+\begin{lem}[Discrete Laplace Utility]\label{lem:dlap-util}
+Let $\varepsilon>0$ and let $Y \gets \discL(1/\varepsilon)$. The distribution is symmetric; in particular, $\ex{}{Y}=0$. We have $\ex{}{|Y|}=\frac{2 \cdot e^\varepsilon}{e^{2\varepsilon}-1}$ and $\var{}{Y}=\ex{}{Y^2} = \frac{2\cdot e^{\varepsilon}}{(e^{\varepsilon}-1)^2}$. For all $\lambda<\varepsilon$, $$\ex{}{e^{\lambda|Y|}} = \frac{e^{\varepsilon}-1}{e^{\varepsilon}+1} \cdot  \frac{e^{\varepsilon-\lambda}+1}{e^{\varepsilon-\lambda}-1}.$$
+For all $m \in \mathbb{N}$, $$\pr{}{Y\ge m} = \pr{}{Y\le -m} = \frac{e^{-\varepsilon(m-1)}}{e^\varepsilon+1}.$$
+\end{lem}
+
+
+We remark that the discrete Laplace can also be efficiently sampled. Indeed, it is a key subroutine of our algorithm for sampling a discrete Gaussian; see Section~\ref{sec:sampling}.
+
+There are two immediate qualitative differences between the discrete Laplace and the discrete Gaussian.\footnote{The entire discussion in this section applies equally well to the continuous analogues of these distributions.} In terms of utility, the discrete Laplace has subexponential tails (i.e., decaying as $e^{-\varepsilon m}$), whereas the discrete Gaussian has subgaussian tails (i.e., decaying as $e^{-m^2/2\sigma^2}$). In terms of privacy, the discrete Gaussian satisfies concentrated differential privacy, whereas the discrete Laplace satisfies pure differential privacy; pure differential privacy is a qualitatively stronger privacy condition than concentrated differential privacy.
+
+Thus neither distribution dominates the other. They offer different privacy-utility tradeoffs. If the tails are important (e.g., for computing confidence intervals), then the discrete Gaussian is to be favoured. If pure differential privacy is important, then the discrete Laplace is to be favoured.
+
+We now consider a quantitative comparison. To quantify utility, we focus on the variance of the distribution. (An alternative would be to consider the width of a confidence interval.) For now, we will quantify privacy by concentrated differential privacy. Pure $(\varepsilon,0)$-differential privacy implies $\frac12\varepsilon^2$-concentrated differential privacy; thus both distributions can be evaluated on this scale. 
+
+Consider a small $\varepsilon>0$ and a counting query. We can attain $\frac12\varepsilon^2$-concentrated differential privacy by adding noise from either $\dgauss{1/\varepsilon^2}$ or $\discL(1/\varepsilon)$. By Corollary \ref{cor:bounds}, Proposition \ref{prop:variance:general:lower:bound}, and Lemma \ref{lem:dlap-util}, we have $$\frac{1}{\varepsilon^2} \ge \var{Y_\mathsf{G}\gets\dgauss{1/\varepsilon^2}}{Y_\mathsf{G}} \ge \frac{1}{e^{\varepsilon^2}-1} = \frac{1-o(1)}{\varepsilon^2} ~~~~\text{ and }~~~~ \var{Y_\mathsf{L}\gets\discL(1/\varepsilon)}{Y_\mathsf{L}} = \frac{2 \cdot e^\varepsilon}{(e^\varepsilon-1)^2}= \frac{2 \pm o(1)}{\varepsilon^2}.$$
+Thus, asymptotically (i.e., for small $\varepsilon$), the discrete Gaussian has half as much variance as the discrete Laplace for the same level of privacy. In this comparison, the Gaussian clearly is better.
+
+However, the above quantitative comparison is potentially unfair. Quantifying differential privacy by concentrated differential privacy may favour the Gaussian. If instead we demand pure $(\varepsilon,0)$-differential privacy or approximate $(\varepsilon,\delta)$-differential privacy for a small $\delta>0$, then the comparison would yield the opposite conclusion. It is fundamentally difficult to compare algorithms satisfying different versions of differential privacy, as there is no level playing field.
+
+There is another factor to consider: A practical differentially private system will answer many queries via independent noise addition. Thus the real object of interest is the privacy and utility of the \emph{composition} of many applications of noise addition.
+
+For the rest of this section, we consider the task of answering $k$ counting queries (or sensitivity-1 queries) by adding either discrete Gaussian or discrete Laplace noise. We will measure privacy by approximate $(\varepsilon,\delta)$-differential privacy over a range of parameters. The results are summarized in Figure \ref{fig:gausslaplace}.
+
+Concentrated differential privacy has an especially clean composition theorem \citep{BunS16}:
+\begin{lem}[Composition for Concentrated Differential Privacy]
+Let $M_1\colon \mathcal{X}^n \to \mathcal{Y}_1$ satisfy $\frac12\varepsilon_1^2$-concentrated differential privacy. Let $M_2\colon \mathcal{X}^n \times \mathcal{Y}_1 \to \mathcal{Y}_2$ be such that, for all $y \in \mathcal{Y}_1$, the restriction $M_2(\cdot,y)\colon \mathcal{X}^n \to \mathcal{Y}_2$ satisfies $\frac12\varepsilon_2^2$-concentrated differential privacy. Define $M_*\colon \mathcal{X}^n \to \mathcal{Y}_2$ by $M_*(x) = M_2(x,M_1(x))$. Then $M_*$ satisfies $\frac12(\varepsilon_1^2+\varepsilon_2^2)$-concentrated differential privacy.
+\end{lem}
+This result can be extended to $k$ mechanisms by induction. 
+Thus, to attain $\frac12\varepsilon^2$-concentrated differential privacy for $k$ counting queries, it suffices to add noise from $\dgauss{k/\varepsilon^2}$ to each value independently. We then convert the overall $\frac12\varepsilon^2$-concentrated differential privacy guarantee into approximate $(\varepsilon',\delta)$-differential privacy using Corollary \ref{cor:cdp2adp}.
+
+In contrast, analysing the composition of multiple invocations of discrete Laplace noise addition is not as clean. We use an optimal composition result provided by Kairouz, Oh, and Viswanath~\citep{KairouzOV17,MurtaghV16}:
+The $k$-fold composition of $(\varepsilon,\delta)$-differential privacy satisfies $(\varepsilon',\delta')$-differential privacy if and only if
+\begin{equation}
+    \frac{1}{(1+e^\varepsilon)^k}\sum_{\ell=0}^k {k \choose \ell} \max\left\{ 0 , e^{\ell\varepsilon} - e^{\varepsilon' + (k-\ell)\varepsilon} \right\} \le 1 - \frac{1-\delta'}{(1-\delta)^k}.
+\end{equation}
+
+\begin{figure}[ht!]
+    \centering
+    \begin{minipage}{0.5\textwidth}
+        \includegraphics[width=\textwidth]{gausslaplace_epsdelta.png}
+    \end{minipage}
+    \hspace{-10pt}
+    \begin{minipage}{0.5\textwidth}
+        \includegraphics[width=\textwidth]{gausslaplace_kvar.png}
+    \end{minipage}
+    \caption{\label{fig:gausslaplace} Comparison of discrete Gaussian and Laplace noise addition. Left: Utility is fixed (i.e., answer $k=100$ counting queries each with variance $50^2$ )and we consider the curve of approximate $(\varepsilon,\delta)$-differential privacy guarantees that we can achieve. Right: Privacy is fixed (i.e., approximate $(1,10^{-6})$-differential privacy) and we consider the utility (i.e., variance of noise added to each answer) as we vary the number of counting queries to be answered.}
+\end{figure}
+
+In Figure~\ref{fig:gausslaplace}, we compare the discrete Gaussian and the discrete Laplace in two ways. First (on the left), we fix the utility and compare the approximate differential privacy guarantees. Specifically, we fix the task of answering $k=100$ counting queries with the noise added to each value having variance $50^2$. Both distributions yield different curves of $(\varepsilon,\delta)$-differential privacy guarantees and there are many points to consider. We see that, for this task, the discrete Gaussian attains better $(\varepsilon,\delta)$-differential privacy guarantees except for extremely small $\delta$ -- specifically, $\delta<10^{-45}$. For $\varepsilon=1$, the discrete Gaussian provides $(1,10^{-7})$-differential privacy for this task, whereas the discrete Laplace only provides $(1,206 \times 10^{-7})$-differential privacy. If we demand pure differential privacy, then the discrete Laplace provides $(2.83,0)$-differential privacy, but the discrete Gaussian cannot provide pure differential privacy. The separation becomes more pronounced as the number of queries grows.
+
+Second (on the right of Figure \ref{fig:gausslaplace}), we fix the privacy goal to approximate $(1,10^{-6})$-differential privacy. We vary the number of counting queries (from $k=1$ to $k=100$) and measure the variance of the noise that must be added to each query answer. For a small number of queries ($k \le 10$), the discrete Laplace gives lower variance. However, as the number of queries increases, we see that the discrete Laplace requires higher variance; for $k=100$, the variance is $69\%$ more.
+
+Overall, Figure~\ref{fig:gausslaplace} demonstrates that the discrete Gaussian provides a better privacy-utility tradeoff than the discrete Laplace, except in two narrow parameter regimes: Either a small number of queries or if we demand something very close to pure differential privacy. We only compared variances; if we compare confidence interval sizes instead, then this would further advantage the Gaussian, which has lighter tails.
+
+
+
+\section{Sampling}
+\label{sec:sampling}
+
+In this section, we show how to efficiently sample exactly from a discrete Gaussian on a finite computer given access only to uniformly random bits. Such algorithms are already known \citep{Karney16,DuFW20}. However, we include this both for completeness because we believe that our algorithms are simpler than the prior work. A sample \texttt{Python} implementation is available online \citep{DGaussGithub}.
+
+For simplicity, we focus our discussion of runtime only on the expected number of arithmetic operations; each such operation will take time polylogarithmic in the bit complexity of the parameters (e.g., in the representation of $\sigma^2$ as a rational number). We elaborate on this at the end of the section. 
+
+In Algorithm~\ref{fig:dgauss2}, we present a simple and fast algorithm for discrete Gaussian sampling, with the following guarantees:
+\begin{thm}
+  \label{theo:sampling:discrete:gaussian}
+  On input $\sigma^2\in\mathbb{Q}$, the procedure described in Algorithm~\ref{fig:dgauss2} outputs one sample from $\dgauss{\sigma^2}$ and requires only a constant number of  operations in expectation.
+\end{thm}
+
+At a high level, the idea behind the algorithm is to first sample from a discrete Laplace distribution and then ``convert'' this into a discrete Gaussian by rejection sampling. In order to do so, we provide two subroutines, which we believe to be of independent interest: the first, to efficiently and exactly sample from a Bernoulli with parameter $e^{-\gamma}$, for any rational parameter $\gamma \geq 0$ (Proposition~\ref{prop:sampling:expbernoulli}). The second, to efficiently and exactly sample from a discrete Laplace with scale parameter $t$, for any positive integer $t$ (Proposition~\ref{prop:sampling:discr:laplace}).
+
+\subsection{Sampling $\bern(\exp(-\gamma))$}
+
+Our first subroutine, Algorithm~\ref{fig:bernexp}, describes how to reduce the task of sampling from  $\bern(\exp(-\gamma))$ to that of sampling from $\bern(\gamma/k)$ for various integers $k \ge 1$. 
+This procedure is based on a technique of von Neumann \citep{vonNeumann51,Forsythe72}. This procedure avoids complex operations, such as computing the exponential function. Thus, for a rational $\gamma$, this can be implemented on a finite computer. Specifically, for $n,d \in \mathbb{N}$, to sample $\bern(n/d)$ it suffices to draw $D \in \{1,2,\dots,d\}$ uniformly at random and output $1$ if $D \le n$ and output $0$ if $D > n$. (To sample $D \in \{1,2,\cdots,d\}$ we can again use rejection sampling -- that is, we uniformly sample $D \in \{1,2,\cdots,2^{\lceil \log_2 d \rceil}\}$ and reject and retry if $D>d$.)
+
+In the rest of the analysis, we assume for the sake of abstraction that sampling $\bern(n/d)$ given $n,d \in \mathbb{N}$ requires a constant number of arithmetic operations in expectation.
+\begin{prop}
+  \label{prop:sampling:expbernoulli}
+  On input (rational) $\gamma\geq 0$, the procedure described in Algorithm~\ref{fig:bernexp} outputs one sample from $\bern(\exp(-\gamma))$, and requires a constant number of operations in expectation.
+\end{prop}
+\begin{proof}
+    First, consider the case where $\gamma\in[0,1]$. For the analysis, we let $A_k$ denote the value of $A$ in the $k$-th iteration of the loop in the algorithm, and $K^\ast$ denote the final value of $K$ upon exiting the loop. Then, for all $k \in \{0,1,2,\cdots\}$, we have 
+    \[
+      \pr{}{K^\ast > k} = \pr{}{A_1=A_2=\cdots=A_k=1} = \prod_{i=1}^k \pr{}{A_i=1} = \prod_{i=1}^k \frac{\gamma}{i} = \frac{\gamma^k}{k!}.
+    \]
+    Thus
+    \begin{align*}
+    \pr{}{K^\ast~\text{odd}} &= \sum_{k=0}^\infty \pr{}{K^\ast=2k+1}
+    = \sum_{k=0}^\infty ( \pr{}{K^\ast>2k} - \pr{}{K^\ast>2k+1} )
+    = \sum_{k=0}^\infty \left( \frac{\gamma^{2k}}{(2k)!} - \frac{\gamma^{2k+1}}{(2k+1)!} \right)
+    \end{align*}
+    which is equal to $e^{-\gamma}$ as desired. Further, the expected number of operations is simply 
+    $
+    T(\gamma)=O(\ex{}{K^\ast}) = O\!\left(\sum_{k=0}^\infty \pr{}{K^\ast > k}\right) = O(e^\gamma) = O(1).
+    $\smallskip
+
+
+    Now, if $\gamma > 1$, the procedure performs (at most) $\ell \eqdef  \lfloor \gamma \rfloor + 1$ independent sequential recursive calls, getting $\ell$ independent samples $B_1,\cdots,B_{\ell-1}\sim\bern(\exp(-1))$ and $C\sim\bern(\exp(-(\gamma-\lfloor\gamma\rfloor)))$. Its output is then distributed as a Bernoulli random variable with parameter\\$\pr{}{B_1=B_2=\cdots=B_{\ell-1}=C=1} = \prod_{i=1}^\ell\pr{}{B_i=1} \cdot \pr{}{C=1} = \exp(-1)^{\lfloor \gamma \rfloor} \cdot \exp(\gamma-\lfloor\gamma\rfloor) = \exp(-\gamma)$, as desired.
+    
+    The number of recursive calls is at most $\ell$. However, the recursive calls will stop as soon as $B=0$ for the first time. We have $\pr{}{B=0} = 1-e^{-1}$. Thus the number of recursive calls follows a truncated geometric distribution. The expected number of recursive calls is constant and, therefore, the expected number of operations is too.
+\end{proof}
+
+\begin{algorithm}[ht!]
+  \begin{algorithmic}
+  \Require  Parameter $\gamma\geq 0$.
+  \Ensure  One sample from $\bern(\exp(-\gamma))$.
+  \If{$\gamma \in [0,1]$}
+    \State{Set $K \gets 1$.}
+    \Loop
+      \State{Sample $A \gets \bern(\gamma/K)$.}
+      \If{$A=0$} break the loop. \EndIf
+      \If{$A=1$} set $K \gets K+1$ and continue the loop. \EndIf
+    \EndLoop
+    \If{$K$ is odd} \Return $1$.\EndIf
+    \If{$K$ is even} \Return $0$.\EndIf
+  \Else
+\For{$k=1$ \textbf{to} $\lfloor \gamma \rfloor$}
+        \State{Sample $B\gets \bern(\exp(-1))$} \Comment{Recursive call.}
+        \If{$B=0$} break the loop and \Return 0.\EndIf
+    \EndFor
+    \State{Sample $C \gets \bern(\exp(\lfloor \gamma \rfloor - \gamma))$}
+    \Comment{Recursive call. $\gamma-\lfloor\gamma\rfloor \in [0,1]$.}
+    \State{\Return $C$.}
+  \EndIf
+  \end{algorithmic}
+  \caption{Algorithm for Sampling $\bern(\exp(-\gamma))$.}\label{fig:bernexp}
+\end{algorithm}
+
+\subsection{Sampling from a Discrete Laplace}
+Now we show how to efficiently and exactly sample from a discrete Laplace distribution; see Section \ref{sec:dlap} for more about this distribution. Other methods for sampling from the discrete Laplace distribution are known \citep{ScheinWSZW19}.
+
+At a high level, our sampling algorithm (Algorithm~\ref{fig:discr:laplace}) works as follows. As building blocks we have ability to sample a (discrete) uniform random variable on $\{0,1,\dots,t-1\}$ and the ability to sample Bernoulli random variables with exponential parameters (Algorithm~\ref{fig:bernexp}). Using these building blocks we can generate geometric random variables with increasingly complex parameters, using the previous to obtain the next: First we generate samples from $\mathsf{Geometric}(1-e^{-1})$, then we use this to sample from $\mathsf{Geometric}(1-e^{-1/t})$ for $t \in \mathbb{N}$, until finally we obtain samples from $\mathsf{Geometric}(1-e^{-s/t})$. Once we can sample $Y \sim \mathsf{Geometric}(1-e^{-s/t})$, we combine $Y$ with an additional independent random sign to obtaining a two-sided Geometric random variable, which is exactly the desired $\mathsf{Lap}_\Z(t/s)$. When combining the Geometric random variable with a random sign, we must be careful to not double the probability mass at 0; that is, we must reject one of $+0$ and $-0$.
+We can sample $V \sim \mathsf{Geometric}(1-e^{-1})$ by repeatedly sampling $\bern(\exp(-1))$ and counting the number of $1$s we draw before the first $0$.
+To sample $X \sim \mathsf{Geometric}(1-e^{-1/t})$ we independently sample the ``high order bits'' $V = \lfloor X / t \rfloor$ and the low order bits $U = X \mod{t}$. The distribution of $V$ is simply $V \sim \mathsf{Geometric}(1-e^{-1})$, which we have already covered.
+The distribution of $U$ can be obtained by first sampling $U$ uniformly from $\{0,1,\dots,t-1\}$ and then performing rejection sampling, where we accept with probability $\bern(\exp(-U/t))$.
+Finally, given a sample $X \sim \mathsf{Geometric}(1-e^{-1/t})$, we can generate a sample $Y \sim \mathsf{Geometric}(1-e^{-s/t})$ as $Y = \lfloor X / s \rfloor$.
+
+\begin{algorithm}[ht!]
+\begin{algorithmic}
+\Require Parameters $s,t\in\Z$, $s,t\geq 1$.
+\Ensure One sample from $\discL(t/s)$.
+\Loop \Comment{Repeat until successful}
+  \State{Sample $U \in \{0,1,2,\cdots,t-1\}$ uniformly at random.}
+  \State{Sample $D \gets \bern(\exp(-U/t))$.}  \Comment{Use Algorithm~\ref{fig:bernexp}.}
+  \If{$D=0$} reject and restart. \EndIf
+  \State{Initialize $V \gets 0$.}
+  \Loop \Comment{Generate $V$ from $\mathsf{Geometric}(1-e^{-1})$.}
+  \State{Sample $A \gets \bern(\exp(-1))$.}     \Comment{Use Algorithm~\ref{fig:bernexp}.}
+  \If{$A=0$} break the loop. \EndIf
+  \If{$A=1$} set $V \gets V+1$ and continue. \EndIf
+  \EndLoop
+  \State Set $X \gets U + t \cdot V$. \Comment{$X$ is $\mathsf{Geometric}(1-e^{-1/t})$.}
+  \State Set $Y \gets \lfloor X/s\rfloor$ \Comment{$Y$ is $\mathsf{Geometric}(1-e^{-s/t})$.}
+  \State{Sample $B \gets \bern(1/2)$. }
+  \If{$B=1$ and $Y=0$} reject and restart. \EndIf
+  \State\Return $Z\gets (1-2B) \cdot Y$. \Comment{Success; $Z$ is a discrete Laplace.}
+\EndLoop
+\end{algorithmic}
+\caption{Algorithm for Sampling a Discrete Laplace}\label{fig:discr:laplace}
+\end{algorithm}
+
+\begin{prop}
+  \label{prop:sampling:discr:laplace}
+  On input $s,t \in \Z$ with $s,t\ge1$, the procedure described in Algorithm~\ref{fig:discr:laplace} outputs one sample from $\discL(t/s)$, and requires a constant number of operations in expectation.
+\end{prop}
+\begin{proof}
+To prove the theorem, we must verify two things: (1)~we must show that, for each attempt (i.e., for each iteration of the outer loop), conditioned on outputting a value $Z$ (henceforth referred to as \emph{success}, and denoted $\top$), the distribution of the output $Z$ is $\discL(t/s)$ as desired; (2)~we must lower bound the probability that a given loop iteration is successful. This ensures that the loop terminates quickly, giving the bound on the runtime.
+
+To begin, we show that, conditioned on $D=1$, $X$ follows a geometric distribution with parameter $\tau\eqdef 1/t$. Specifically, $\pr{}{X=x \mid D=1}=(1-e^{-\tau}) \cdot e^{-x\tau}$ for every integer $x\geq 0$. For any such $x$, let $u_x \eqdef x\bmod t$ and $v_x = \lfloor x/t\rfloor$, so that $x=u_x + t\cdot v_x$. It is immediate to see that, as defined by the algorithm, $V$ is independent of both $U$ and $D$ and follows a geometric distribution with parameter $1-e^{-1}$: that is, $\pr{}{V=k} = (1-e^{-1}) \cdot e^{-k}$ for every integer $k\geq 0$. We thus have
+\begin{align*}
+  \pr{}{X=x \mid D=1} 
+  &= \pr{}{ U = u_x, V = v_x \mid D=1}
+  = \pr{}{ U = u_x \mid D=1 }\cdot\pr{}{ V = v_x }\\
+  &= \frac{ \pr{}{U= u_x} }{\pr{}{D=1}}\cdot\pr{}{ D=1 \mid U=u_x } \cdot (1-e^{-1}) \cdot e^{-v_x} \\
+  &= \frac{1/t}{(1/t)\sum_{k=0}^{t-1} e^{-k/t}}\cdot e^{- u_x/t}\cdot(1-e^{-1}) \cdot e^{-v_x} \\
+  &= (1-e^{-1/t})\cdot e^{-(u_x/t+v_x)} 
+  = (1-e^{-1/t})\cdot e^{-x/t} 
+\end{align*}
+as claimed.
+
+We then claim that $Y = \lfloor\frac{X}{s}\rfloor$ (conditioned on $D=1$) follows a $\mathsf{Geometric}(1-e^{-s/t})$ distribution -- i.e., $\pr{}{Y=y \mid D=1} = (1-e^{-s/t}) \cdot e^{-y \cdot s/t}$ for all integers $y \ge 0$. This is an immediate consequence of the following fact.
+\begin{fact}
+Fix $p\in(0,1]$. Let $G$ be a $\mathsf{Geometric}(1-p)$ random variable, and $n\geq 1$ be an integer. Then $\left\lfloor\frac{G}{n}\right\rfloor$ is a $\mathsf{Geometric}(1-q)$ random variable for $q=p^n$.
+\end{fact}
+\begin{proof}
+    For any integer $k\geq 0$, 
+    \begin{align*}
+        \pr{}{ \lfloor G/n\rfloor = k } 
+        &= \pr{}{ nk \leq G < (k+1)n } 
+        = \sum_{\ell=kn}^{(k+1)n-1} (1-p)p^\ell 
+        = (1-p^n)p^{nk} = (1-q)q^k.
+    \end{align*}
+\end{proof}
+
+With this in hand, we analyze the distribution of $Z$ conditioned on $\top$ (success), i.e., conditioned on $D=1$ and $(B,Y)\neq(1,0)$.\footnote{Note that this later condition is added to the algorithm to avoid double-counting the probability that $Z=0$.} Let $\alpha \eqdef s/t$ for convenience.  Recalling $B$ is independent of $D$ and that $B$ and $Y$ (conditioned on $D=1$) are independent, we have
+\begin{align*}
+    \pr{}{(B,Y)\neq (1,0) \mid D=1} &= \pr{}{ B=1, Y>0 \mid D=1}+\pr{}{B=0 \mid D=1} = \frac{1}{2}(e^{-\alpha}+1)\,.
+\end{align*}
+
+\noindent For every $z\in\Z$, we have, recalling that $B$ and $Y$ are independent,
+\begin{align*}
+    \pr{}{Z=z \mid \top} &= \pr{}{(1-2B)Y=z|(B,Y)\ne(1,0),D=1}\\
+    &=  \frac{ \pr{}{(1-2B)Y=z, (B,Y)\neq (1,0) \mid D=1} }{  \pr{}{(B,Y)\neq (1,0) \mid D=1} } \\
+    &=  \frac{\pr{}{Y=|z|, B=\mathbb{I}[z<0] \mid D=1} }{  \pr{}{(B,Y)\neq (1,0) \mid D=1} } \\
+    &=  \frac{ \pr{}{Y=|z| \mid D=1} \cdot \pr{}{B=\mathbb{I}[z<0] \mid D=1} }{\pr{}{(B,Y)\neq (1,0) \mid D=1}}\\
+    &=  \frac{ \pr{}{Y=|z| \mid D=1} }{2\pr{}{(B,Y)\neq (1,0) \mid D=1}}\\
+    &= \frac{(1-e^{-\alpha}) \cdot e^{-|z| \cdot \alpha}}{e^{-\alpha}+1},
+\end{align*}
+by our previous computations. Thus, conditioned on success, $Z$ follows a $\discL(1/\alpha)$ distribution.
+
+We then bound the probability that a fixed iteration of the loop succeeds:
+\[
+    \pr{}{\top} = \pr{}{(B,Y)\neq (1,0)\mid D=1}\pr{}{D=1} = \frac{1+e^{-\alpha}}{2}\cdot \frac{1}{t}\sum_{u=0}^{t-1}e^{-u/t} = \frac{1+e^{-\alpha}}{2}\frac{1-e^{-1}}{t(1-e^{-1/t})} \geq \frac{1-e^{-1}}{2}.
+\]
+It follows that the number $N$ of iterations of the outer loop needed to output a value $Z$ is geometrically distributed and satisfies $\ex{}{N} \leq \frac{2}{1-e^{-1}} < 3.2$. Moreover, each iteration of the outer loop requires a constant number of operations in expectations. This is because each of the subroutines requires a constant number of operations in expectation and the inner loop runs a geometrically-distributed number of times which is constant in expectation. \end{proof}
+
+\subsection{Sampling from a Discrete Gaussian}
+
+In Algorithm~\ref{fig:dgauss2}, we prove Theorem~\ref{theo:sampling:discrete:gaussian} and present our algorithm that requires $O(1)$ operations on average to sample from a discrete Gaussian $\dgauss{\sigma^2}$. 
+
+\begin{algorithm}[ht!]
+\begin{algorithmic}
+\Require Parameter $\sigma^2>0$.
+\Ensure One sample from $\dgauss{\sigma^2}$.
+\State{Set $t \gets \lfloor \sigma \rfloor+1$}
+\Loop \Comment{Repeat until successful}
+  \State{Sample $Y\gets \discL(t)$}  \Comment{Use Algorithm~\ref{fig:discr:laplace}}
+  \State{Sample $C \gets \bern(\exp(-(|Y|-\sigma^2/t)^2/2\sigma^2))$.} \Comment{Use Algorithm~\ref{fig:bernexp}}
+  \State{If $C=0$, reject and restart.}
+  \State{If $C=1$, return $Y$ as output.}
+  \Comment{Success; $Y$ is a discrete Gaussian.}
+\EndLoop
+\end{algorithmic}
+\caption{Algorithm for Sampling a Discrete Gaussian}\label{fig:dgauss2}
+\end{algorithm}
+
+\begin{proof}[Proof of Theorem~\ref{theo:sampling:discrete:gaussian}]
+    Fix any iteration of the loop, and let $t \gets \lfloor \sigma \rfloor+1$ and $\tau\eqdef 1/t$. Since $Y\gets \discL(1/\tau)$, we have that $C$ is a Bernoulli with parameter
+    \[
+          \ex{}{C} = \ex{}{ \ex{}{C \mid Y} } = \ex{}{ e^{-\frac{(|Y|-\sigma^2\tau)^2}{2\sigma^2}} } = \frac{1-e^{-\tau}}{1+e^{-\tau}} \sum_{y\in\Z} e^{-\frac{(|y|-\sigma^2\tau)^2}{2\sigma^2} - |y|\tau}
+          = \frac{1-e^{-\tau}}{1+e^{-\tau}}e^{-\frac{\sigma^2\tau^2}{2}}\sum_{y\in\Z} e^{-\frac{y^2}{2\sigma^2}}.
+    \]
+    Thus, for any $y\in \Z$, conditioned on $C=1$ (i.e., on $Y$ being output) we have
+    \begin{align*}
+        \pr{}{ Y=y \mid C=1 } 
+        &= \frac{ \pr{}{ C=1 \mid Y=y } \pr{}{Y=y} }{ \pr{}{C=1} }
+        = \frac{ e^{-\frac{(|y|-\sigma^2\tau)^2}{2\sigma^2}} \cdot \frac{1-e^{-\tau}}{1+e^{-\tau}}\cdot e^{-|y|\tau} }{ \ex{}{C} }\\
+        &= \frac{ e^{-\frac{(|y|-\sigma^2\tau)^2}{2\sigma^2}} \cdot e^{-|y|\tau} }{ e^{-\frac{\sigma^2\tau^2}{2}}\sum_{y'\in\Z} e^{-\frac{y'^2}{2\sigma^2}} }
+        = \frac{ e^{-\frac{y^2}{2\sigma^2}} }{\sum_{y'\in\Z} e^{-\frac{y'^2}{2\sigma^2}} }.
+    \end{align*}
+    That is, conditioned on outputting a value, this value is indeed distributed according to $\dgauss{\sigma^2}$.
+    
+    We now turn to the runtime analysis. First, recalling (1)~that $\sigma^2\tau^2 < 1$ and $\sigma\ge t-1$, by our choice of $t = 1/\tau = \lfloor \sigma \rfloor + 1 > \sigma$, and (2)~the bound $\sum_{y\in\Z} e^{-\frac{y^2}{2\sigma^2}} \ge \max\{1,\sqrt{2\pi\sigma^2}\}$ from Fact~\ref{fact:normalization:constant}, we have
+    $$
+    \ex{}{C} \ge \frac{1-e^{-1/t}}{1+e^{-1/t}}e^{-\frac{1}{2}} \max\{1,\sqrt{2\pi}\sigma\} \ge \frac{e^{-1/2} \sqrt{2\pi}}{2} (1-e^{-1/t})\max\{1,t-1\} > 0.29.
+    $$
+    Therefore the probability that the algorithms succeeds and outputs a value in any given iteration of the loop is lower bounded by a positive constant. Thus the number of iterations of the loop follows a geometric distribution and is constant in expectation. Since, for each iteration, the expected number of operations required to sample $Y$ and $C$ is constant (by Propositions~\ref{prop:sampling:discr:laplace} and~\ref{prop:sampling:expbernoulli}) the overall number of operations is constant in expectation.
+\end{proof}
+
+
+
+\subsection{Runtime Analysis}
+\label{ssec:runtime}
+We have stated that our algorithms require a constant number of operations in expectation. We now elaborate on this.
+
+We assume a Word RAM model of computation. In particular, we assume that arithmetic operations on the parameters count as one operation. Specifically, we assume that the parameter $\sigma^2$ is represented as a rational number (i.e., two integers in binary) and that this fits in a constant number of words. If we measure complexity in terms of bits (rather than words), then all operations run in time polynomial in the description length of the input $\sigma^2$. We emphasize that, if the parameter $\sigma^2$ is rational, then all operations are over rational numbers; we only apply basic field operations and comparisons and do not evaluate any functions like the exponential function or the square root\footnote{We do compute $t = \lfloor \sqrt{\sigma^2} \rfloor + 1 = \inf\{n \in \mathbb{N} : n^2>\sigma^2\}$ and count this as a single operation; this can be done exactly with rational operations (and binary search).} that would require approximations or moving outside the rational field. The memory (i.e., number of words) used by our algorithms is logarithmic in the runtime and constant in expectation. (The only way the memory usage grows is the counters associated with some loops.)
+
+The runtime of our algorithms is random. Beyond showing that the number of operations is constant in expectation, it is possible to show, for all of our algorithms, that it is a subexponential random variable. We give a precise definition of this term.
+\begin{defi}
+A nonnegative random variable $X$ is said to be \emph{$\lambda$-subexponential} if $\ex{}{e^{X/\lambda}} \leq e$. And $X$ is said to be \emph{subexponential} if it is $\lambda$-subexponential for some finite $\lambda>0$. \end{defi}
+The constant $e$ in the definition is arbitrary. Note that, if $X$ is $\lambda$-subexponential, then $\pr{}{X \ge t} \le \ex{}{e^{(X-t)/\lambda}} \le e^{1-t/\lambda}$ for all $t \ge 0$.
+
+Our algorithms effectively consist of a constant number of nested loops and the number of times each of them runs is subexponential. For most of our loops, they have a constant probability of terminating in each run, which means the number of times they run follows a geometric distribution, which is a subexponential random variable. 
+
+It turns out that such nested loops also have a subexpoential runtime. Specifically, one can show that, if $X_1,\dots,X_n,\dots$ are independent subexponential random variables and $T$ is a stopping time that is subexponential, then $\sum_{n=1}^T X_n$ is still subexponential:
+\begin{lem}
+Let $\alpha,\beta>1$.
+Suppose $(X_n)_{1\leq n\leq \infty}$ are independent non-negative $\alpha$-subexponential random variables and $T$ is a $\beta$-subexponential stopping time. Then $S \eqdef \sum_{n=1}^T X_n$ is $\alpha\beta$-subexponential.
+\end{lem}
+\begin{proof}
+We will require the following simple result:
+\begin{clm}
+  \label{theo:stopping:time:subexp:sum}
+Let $(Y_n)_{n\geq 1}$ be independent random variables satisfying $\mathbb{E}[e^{Y_n}] \leq 1$ for all $n$, and let $T$ be a stopping time such that $T < \infty$ almost surely. Then $\mathbb{E}[e^{\sum_{n=1}^T Y_n}] \leq 1$.
+\end{clm}
+\begin{proof}
+    For $n\geq 0$, let $M_n \eqdef e^{\sum_{k=1}^n Y_k} \geq 0$ (so that $M_0=1$). Note that 
+    $
+      \mathbb{E}[ M_{n+1} \mid M_1,\dots, M_n ] = \mathbb{E}[ e^{X_{n+1}} ] M_n \leq M_n
+    $, i.e., $(M_n)_{n\geq 0}$ is a supermartingale. By the optional stopping theorem for non-negative supermartingales (cf., e.g.,~\cite[Corollary~10.10(d)]{Williams91}, as $T$ is a.s. finite we get
+    $
+        \mathbb{E}[ M_T ] \leq \mathbb{E}[ M_0 ] = 1 \,,
+    $
+    that is, $\mathbb{E}[ e^{\sum_{n=1}^T Y_n} ] \leq 1$.
+\end{proof}
+Applying Claim~\ref{theo:stopping:time:subexp:sum} to $Y_n \eqdef X_n/\alpha-1$, we get
+$
+    \ex{}{e^{S/\alpha-T}}=\mathbb{E}[ e^{\sum_{n=1}^T X_n/\alpha - T} ] \leq 1
+$ 
+. 
+Now, by H\"older's and Jensen's inequalities,
+\[
+    \ex{}{e^{S/\alpha\beta}} = \ex{}{e^{(S/\alpha-T)/\beta} \cdot e^{T/\beta}} \le \ex{}{e^{S/\alpha-T}}^{1/\beta} \cdot \ex{}{e^{T/(\beta-1)}}^{1-1/\beta} \le 1^{1/\beta} \cdot \ex{}{e^{T/\beta}} \le e.
+\]
+Thus $S$ is $\alpha\beta$-subexponential.
+\end{proof}
+In our case, $T$ corresponds to the number of times the loop runs and $X_n$ corresponds to the number of operations required inside the $n$-th run of the loop. Applying the above lemma to each nested loop shows that the overall runtimes of Algorithm~\ref{fig:bernexp}, Algorithm~\ref{fig:discr:laplace}, and Algorithm~\ref{fig:dgauss2} are all subexponential random variables.
+
+This means in particular that, for any $\delta \in (0,1)$, to generate a batch of $k$ samples from $\dgauss{\sigma^2}$ (i.e., $k$ runs of Algorithm \ref{fig:dgauss2}), the probability of requiring more than $O(k + \log(1/\delta))$ arithmetic operations is at most $\delta$.\footnote{Generating batches of samples, rather than one sample at a time, means we only need to pay one $\log(1/\delta)$ in our analysis, rather than $O(k \cdot \log(1/\delta))$ if we analyse each sample separately. (If $X_1,\cdots,X_k$ are the number of operations of the $k$ runs, then $\pr{}{X_1 + \cdots + X_k \ge t} \le \ex{}{e^{(X_1 + \cdots + X_k-t)/\lambda}} \le e^{k-t/\lambda}$, where $\lambda$ is the subexponential constant of Algorithm \ref{fig:dgauss2}'s number of operations. Setting $t=\lambda(k+\log(1/\delta))$ ensures this probability is at most $\delta$.)} Each arithmetic operation corresponds effectively to a constant number of operations in the word RAM model. However, if the runtime is $T$ then the loop counters could require $O(\log T)$ words. Thus the number of word RAM operations is at most $\tilde{O}(k + \log(1/\delta))$ with probability at least $1-\delta$. (We do not consider an amortized complexity analysis.)
+
+Thus, our algorithms have a highly concentrated runtime. This is important: If they do not terminate in time, then this may result in a failure of differential privacy. 
+While there is the possibility for our approach to run unboundedly long, one could consider a hard stopping variant.
+The concentrated runtime provides a very sharp bound on the impact that this variant would have on the privacy parameter $\delta$.
+Specific analysis would be implementation dependent and is beyond the scope of our work, though we suspect it would be negligible in settings which are not extremely time-sensitive.
+There is also the potential for timing attacks.
+Indeed, subsequent to the initial posting of our work and non-optimized demonstration code~\cite{CKS20,DGaussGithub}, Jin, McMurtry, Rubinstein, and Ohrimenko~\cite{JinMRO21} demonstrated a timing attack against our implementation. 
+Balcer and Vadhan \cite{BalcerV17} argue that differentially private algorithms should have a deterministic running time to avoid these issues altogether. However, this is a highly restrictive model. We cannot exactly sample the discrete Gaussian (or any unbounded distribution) in this model. It is not even possible to exactly sample from $\bern(1/3)$ in this model (since, if we only have access to $\ell$ random bits, we can only generate probabilities that are a multiple of $2^{-\ell}$). 
+
+By terminating (and outputting 0) after a pre-specified time limit, our algorithms can be made to have a deterministic runtime. However, this comes at the expense of now only satisfying approximate $(\eps,\delta+\delta')$-differential privacy or $\delta'$-approximate $\frac12\eps^2$-concentrated differential privacy \citep{BunS16}, where $\delta'$ is the probability of reaching the time limit. Since the running time is roughly subexponential, this failure probability $\delta'$ can be made astronomically small with no cost in accuracy and very little cost in runtime (i.e., only milliseconds overall). Realistically, a far greater concern than this failure probability is that the source of random bits is not perfectly uniform \citep{GarfinkelL20}.
+
+\paragraph{Practical remark.}
+We have implemented the algorithms from Algorithms~\ref{fig:bernexp}, \ref{fig:discr:laplace}, and \ref{fig:dgauss2} in \texttt{Python} (using the \texttt{fractions.Fraction} class for exact rational arithmetic and using \texttt{random.SystemRandom()} to obtain high-quality randomnesss). Overall, on a standard personal computer, our basic (non-optimized) implementation is able to produce over 1000 samples per second even for $\sigma^2=10^{100}$. The source code is available online \citep{DGaussGithub}. 
+
+\section*{Acknowledgments}
+We thank Shahab Asoodeh, Damien Desfontaines, Peter Kairouz, and Ananda Theertha Suresh for making us aware of several related works.
+
+\bibliography{refs,bib}
+\bibliographystyle{alpha}
+
+
+\appendix
+
+\end{document}
