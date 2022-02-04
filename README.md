@@ -7,7 +7,7 @@ The style is derived from LMCS style at https://lmcs.episciences.org/page/author
 
 ## On Overleaf
 
-This can be found on Overleaf: https://v2.overleaf.com/read/jcvxjtfqvgyz
+This can be found on Overleaf: https://www.overleaf.com/project/61fd31f9ad78e11b7de48985
 
 ## Implementing
 
