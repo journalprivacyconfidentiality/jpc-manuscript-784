@@ -360,7 +360,7 @@ Let $\eps > \frac{\Delta^2}{2\sigma^2}$ be such that $\frac{\eps\sigma^2}{\Delta
     \pr{X \gets \dgauss{\sigma^2}}{ X > \frac{\eps\sigma^2}{\Delta}-\frac{\Delta}{2} }
     &= \pr{X \gets \dgauss{\sigma^2}}{ X \geq M(\eps,\sigma) }
     \leq \pr{X \gets \mathcal{N}(0,\sigma^2)}{ X \geq M(\eps,\sigma)-1 } \\
-    &\leq \pr{X \gets \mathcal{N}(0,\sigma^2)}{ X \geq \left\lfloor \frac{\eps\sigma^2}{\Delta}-\frac{\Delta}{2} \right\rfloor }
+    &\leq \pr{X \gets \mathcal{N}(0,\sigma^2)}{ X \geq \left\lfloor \frac{\eps\sigma^2}{\Delta}-\frac{\Delta}{2} \right\rfloor }.
 \end{align*}
 Conversely, by a comparison series-integral, we can easily show that, for any integer $m$,
 \begin{align*}
@@ -373,7 +373,7 @@ which, combined with Fact~\ref{fact:normalization:constant} on the normalization
 \begin{align*}
     \pr{X \gets \dgauss{\sigma^2}}{ X > \frac{\eps\sigma^2}{\Delta}+\frac{\Delta}{2} }
     &= \pr{X \gets \dgauss{\sigma^2}}{ X \geq m(\eps,\sigma) }
-    \geq \frac{1}{1+\frac{1}{\sqrt{2\pi\sigma^2}}}\pr{X \gets \mathcal{N}(0,\sigma^2)}{ X \geq m(\eps,\sigma) }
+    \geq \frac{1}{1+\frac{1}{\sqrt{2\pi\sigma^2}}}\pr{X \gets \mathcal{N}(0,\sigma^2)}{ X \geq m(\eps,\sigma) }.
 \end{align*}
 The result then follows from Theorem~\ref{thm:approx-dp}.
 \end{proof}
@@ -445,7 +445,7 @@ Corollary \ref{cor:cdp2adp} should be contrasted with the standard bound \citep{
 \end{equation}
 which holds when $\eps\ge\rho>0$. Bun and Steinke \cite{BunS16} prove an intermediate bound of
 \begin{equation}
-    \delta = 2\sqrt{\pi\rho} \cdot e^\eps \cdot \pr{X \gets \mathcal{N}(0,1)}{X>\frac{\eps+\rho}{\sqrt{2\rho}}}
+    \delta = 2\sqrt{\pi\rho} \cdot e^\eps \cdot \pr{X \gets \mathcal{N}(0,1)}{X>\frac{\eps+\rho}{\sqrt{2\rho}}}.
 \end{equation}
 \paragraph{Efficient computation of $\delta$.} For the looser expression in Corollary \ref{cor:cdp2adp}, we can analytically find an optimal $\alpha$. However, we can efficiently compute a tighter numerical bound: The equality in Equation \ref{eq:cdp2adp} is equivalent to
 \begin{equation}
@@ -543,7 +543,7 @@ Theorem \ref{thm:priv3} gives three equivalent expressions for the approximate d
     
     \item It is possible to compute the probability mass function of the privacy loss from the characteristic function:
     \begin{equation}
-        \forall z \in \gamma \Z ~~~~~~~~~~ \pr{}{Z=z} = \frac{\gamma}{2\pi} \int_0^{2\pi/\gamma} e^{-itz} \cdot \ex{}{e^{\ii{}tZ}} \dx[t] \label{eq:pmf-cf}
+        \forall z \in \gamma \Z ~~~~~~~~~~ \pr{}{Z=z} = \frac{\gamma}{2\pi} \int_0^{2\pi/\gamma} e^{-itz} \cdot \ex{}{e^{\ii{}tZ}} \dx[t]. \label{eq:pmf-cf}
     \end{equation}
     This can form the basis of an algorithm for computing the guarantee of Theorem \ref{thm:priv2}: The characteristic function can be easily computed from Equations \ref{eq:dg-cf}, \ref{eq:dg-cf-poisson}, and \ref{eq:pl-multi} and then we numerically integrate it according to Equation \ref{eq:pmf-cf} to compute the probability distribution of the privacy loss and finally we substitute this into Equation \ref{eq:multi_adp1}.
     
@@ -558,7 +558,7 @@ Theorem \ref{thm:priv3} gives three equivalent expressions for the approximate d
     
     \item The inverse discrete Fourier transform allows us to compute the probability mass of $Z_m$ from the characteristic function of $Z$ (which is identical to the characteristic function of $Z_m$ at the points of interest):
     \begin{equation}
-        \pr{}{Z_m=z} = \frac{1}{m} \sum_{k=0}^{m-1} e^{-i 2\pi zk / m\gamma} \cdot \ex{}{e^{\ii{} 2\pi k Z/m\gamma}}\\
+        \pr{}{Z_m=z} = \frac{1}{m} \sum_{k=0}^{m-1} e^{-i 2\pi zk / m\gamma} \cdot \ex{}{e^{\ii{} 2\pi k Z/m\gamma}}.\\
     \end{equation}
     The fast Fourier transform uses a divide-and-conquer approach to allow us to compute the entire distribution of $Z_m$ in nearly linear time from the values $\ex{}{e^{\ii{}2\pi k Z / m\gamma}}$ for $k=0 \cdots m-1$. These values can be easily computed using Equations \ref{eq:dg-cf-poisson} and \ref{eq:pl-multi}.
     
@@ -708,7 +708,7 @@ The above bounds, albeit simple to obtain, are not quite as tight as they could 
     \begin{equation}
         1+2e^{-1/(2\sigma^2)}
             \leq \sum_{n\in\Z} e^{-n^2/(2\sigma^2)} 
-            \leq 1+2e^{-1/(2\sigma^2)} + \sqrt{2\pi\sigma^2} e^{-1/(2\sigma^2)}
+            \leq 1+2e^{-1/(2\sigma^2)} + \sqrt{2\pi\sigma^2} e^{-1/(2\sigma^2)}.
     \end{equation}
     The first set of bounds is better for $\sigma \geq \frac{1}{\sqrt{2\pi}}$, and the second for $\sigma < \frac{1}{\sqrt{2\pi}}$.
 \end{fact}
@@ -726,7 +726,7 @@ We now analyze the variance of the discrete Gaussian, showing that it is stricty
   \label{prop:variance:upper:bound}
     For all $\sigma \in \R$ with $\sigma>0$,
 \begin{equation}
-\var{}{\discN(0,\sigma^2)} \leq \sigma^2 \left(1 - \frac{4\pi^2\sigma^2}{e^{4\pi^2\sigma^2}-1} \right)<\sigma^2
+\var{}{\discN(0,\sigma^2)} \leq \sigma^2 \left(1 - \frac{4\pi^2\sigma^2}{e^{4\pi^2\sigma^2}-1} \right)<\sigma^2.
 \end{equation}
 Moreover, if $\sigma^2\le 1/3$ then $\var{}{\discN(0,\sigma^2)} \le 3 \cdot e^{-1/2\sigma^2}$.
 \end{prop}
@@ -767,7 +767,7 @@ Next we have a lower bound on the variance.
 \begin{prop}[Universal Variance Lower Bound]\label{prop:variance:general:lower:bound}
 Let $X$ be a distribution on $\R$ such that $\dr{2}{X+1}{X} \le \varepsilon^2$. Then
 \begin{equation}
-    \var{}{X} \geq \frac{1}{e^{\varepsilon^2}-1}
+    \var{}{X} \geq \frac{1}{e^{\varepsilon^2}-1}.
 \end{equation}
 \end{prop}
 \begin{proof}
@@ -783,7 +783,7 @@ The discrete Gaussian $\dgauss{1/\varepsilon^2}$ satisfies the hypotheses of Pro
 \begin{cor}\label{cor:dgauss_var}
 For all $\sigma>0$, 
 \begin{equation}
-    \var{X \gets \dgauss{\sigma^2}}{X} \ge \frac{1}{e^{1/\sigma^2}-1}
+    \var{X \gets \dgauss{\sigma^2}}{X} \ge \frac{1}{e^{1/\sigma^2}-1}.
 \end{equation}
 \end{cor}
 We emphasize that the lower bound of Proposition \ref{prop:variance:general:lower:bound} is not specific to the discrete Gaussian. It applies to any distribution $X$ such that adding $X$ to a sensitivity-1 function provides $\frac12\varepsilon^2$-concentrated differential privacy.
@@ -880,7 +880,7 @@ We highlight the fact that comparing with the rounded Gaussian, as the above pro
 
 \subsection{Other Discretizations, and Convergence to the Continuous Gaussian}
 \label{sec:other-discs}
-Although we focused on this paper on the discrete Gaussian over $\Z$, one can of course consider different discretizations, such as the discrete Gaussian over $\alpha\Z := \{\alpha z : z \in \Z \}$ for some fixed $\alpha>0$. We denote this distribution by $\discparamN{\alpha}(\mu,\sigma^2)$. It is defined by
+Although we focused in this paper on the discrete Gaussian over $\Z$, one can of course consider different discretizations, such as the discrete Gaussian over $\alpha\Z := \{\alpha z : z \in \Z \}$ for some fixed $\alpha>0$. We denote this distribution by $\discparamN{\alpha}(\mu,\sigma^2)$. It is defined by
 \begin{equation}
 \forall x \in \alpha\Z ~~~~~ \pr{X \gets \discparamN{\alpha}(\mu,\sigma^2)}{X=x}=\frac{e^{-(x-\mu)^2/2\sigma^2}}{\sum_{y \in \alpha\Z} e^{-(y-\mu)^2/2\sigma^2}}.
 \end{equation}
@@ -974,7 +974,7 @@ The $k$-fold composition of $(\varepsilon,\delta)$-differential privacy satisfie
     \begin{minipage}{0.5\textwidth}
         \includegraphics[width=\textwidth]{gausslaplace_kvar.png}
     \end{minipage}
-    \caption{\label{fig:gausslaplace} Comparison of discrete Gaussian and Laplace noise addition. Left: Utility is fixed (i.e., answer $k=100$ counting queries each with variance $50^2$ )and we consider the curve of approximate $(\varepsilon,\delta)$-differential privacy guarantees that we can achieve. Right: Privacy is fixed (i.e., approximate $(1,10^{-6})$-differential privacy) and we consider the utility (i.e., variance of noise added to each answer) as we vary the number of counting queries to be answered.}
+    \caption{\label{fig:gausslaplace} Comparison of discrete Gaussian and Laplace noise addition. Left: Utility is fixed (i.e., answer $k=100$ counting queries each with variance $50^2$) and we consider the curve of approximate $(\varepsilon,\delta)$-differential privacy guarantees that we can achieve. Right: Privacy is fixed (i.e., approximate $(1,10^{-6})$-differential privacy) and we consider the utility (i.e., variance of noise added to each answer) as we vary the number of counting queries to be answered.}
 \end{figure}
 
 In Figure~\ref{fig:gausslaplace}, we compare the discrete Gaussian and the discrete Laplace in two ways. First (on the left), we fix the utility and compare the approximate differential privacy guarantees. Specifically, we fix the task of answering $k=100$ counting queries with the noise added to each value having variance $50^2$. Both distributions yield different curves of $(\varepsilon,\delta)$-differential privacy guarantees and there are many points to consider. We see that, for this task, the discrete Gaussian attains better $(\varepsilon,\delta)$-differential privacy guarantees except for extremely small $\delta$ -- specifically, $\delta<10^{-45}$. For $\varepsilon=1$, the discrete Gaussian provides $(1,10^{-7})$-differential privacy for this task, whereas the discrete Laplace only provides $(1,206 \times 10^{-7})$-differential privacy. If we demand pure differential privacy, then the discrete Laplace provides $(2.83,0)$-differential privacy, but the discrete Gaussian cannot provide pure differential privacy. The separation becomes more pronounced as the number of queries grows.
@@ -988,7 +988,7 @@ Overall, Figure~\ref{fig:gausslaplace} demonstrates that the discrete Gaussian p
 \section{Sampling}
 \label{sec:sampling}
 
-In this section, we show how to efficiently sample exactly from a discrete Gaussian on a finite computer given access only to uniformly random bits. Such algorithms are already known \citep{Karney16,DuFW20}. However, we include this both for completeness because we believe that our algorithms are simpler than the prior work. A sample \texttt{Python} implementation is available online \citep{DGaussGithub}.
+In this section, we show how to efficiently sample exactly from a discrete Gaussian on a finite computer given access only to uniformly random bits. Such algorithms are already known \citep{Karney16,DuFW20}. However, we include this for completeness because we believe that our algorithms are simpler than the prior work. A sample \texttt{Python} implementation is available online \citep{DGaussGithub}.
 
 For simplicity, we focus our discussion of runtime only on the expected number of arithmetic operations; each such operation will take time polylogarithmic in the bit complexity of the parameters (e.g., in the representation of $\sigma^2$ as a rational number). We elaborate on this at the end of the section. 
 
@@ -1003,7 +1003,7 @@ At a high level, the idea behind the algorithm is to first sample from a discret
 \subsection{Sampling $\bern(\exp(-\gamma))$}
 
 Our first subroutine, Algorithm~\ref{fig:bernexp}, describes how to reduce the task of sampling from  $\bern(\exp(-\gamma))$ to that of sampling from $\bern(\gamma/k)$ for various integers $k \ge 1$. 
-This procedure is based on a technique of von Neumann \citep{vonNeumann51,Forsythe72}. This procedure avoids complex operations, such as computing the exponential function. Thus, for a rational $\gamma$, this can be implemented on a finite computer. Specifically, for $n,d \in \mathbb{N}$, to sample $\bern(n/d)$ it suffices to draw $D \in \{1,2,\dots,d\}$ uniformly at random and output $1$ if $D \le n$ and output $0$ if $D > n$. (To sample $D \in \{1,2,\cdots,d\}$ we can again use rejection sampling -- that is, we uniformly sample $D \in \{1,2,\cdots,2^{\lceil \log_2 d \rceil}\}$ and reject and retry if $D>d$.)
+This procedure is based on a technique of von Neumann \citep{vonNeumann51,Forsythe72} and avoids complex operations, such as computing the exponential function. Thus, for a rational $\gamma$, this can be implemented on a finite computer. Specifically, for $n,d \in \mathbb{N}$, to sample $\bern(n/d)$ it suffices to draw $D \in \{1,2,\dots,d\}$ uniformly at random and output $1$ if $D \le n$ and output $0$ if $D > n$. (To sample $D \in \{1,2,\cdots,d\}$ we can again use rejection sampling -- that is, we uniformly sample $D \in \{1,2,\cdots,2^{\lceil \log_2 d \rceil}\}$ and reject and retry if $D>d$.)
 
 In the rest of the analysis, we assume for the sake of abstraction that sampling $\bern(n/d)$ given $n,d \in \mathbb{N}$ requires a constant number of arithmetic operations in expectation.
 \begin{prop}
@@ -1061,7 +1061,7 @@ In the rest of the analysis, we assume for the sake of abstraction that sampling
 \subsection{Sampling from a Discrete Laplace}
 Now we show how to efficiently and exactly sample from a discrete Laplace distribution; see Section \ref{sec:dlap} for more about this distribution. Other methods for sampling from the discrete Laplace distribution are known \citep{ScheinWSZW19}.
 
-At a high level, our sampling algorithm (Algorithm~\ref{fig:discr:laplace}) works as follows. As building blocks we have ability to sample a (discrete) uniform random variable on $\{0,1,\dots,t-1\}$ and the ability to sample Bernoulli random variables with exponential parameters (Algorithm~\ref{fig:bernexp}). Using these building blocks we can generate geometric random variables with increasingly complex parameters, using the previous to obtain the next: First we generate samples from $\mathsf{Geometric}(1-e^{-1})$, then we use this to sample from $\mathsf{Geometric}(1-e^{-1/t})$ for $t \in \mathbb{N}$, until finally we obtain samples from $\mathsf{Geometric}(1-e^{-s/t})$. Once we can sample $Y \sim \mathsf{Geometric}(1-e^{-s/t})$, we combine $Y$ with an additional independent random sign to obtaining a two-sided Geometric random variable, which is exactly the desired $\mathsf{Lap}_\Z(t/s)$. When combining the Geometric random variable with a random sign, we must be careful to not double the probability mass at 0; that is, we must reject one of $+0$ and $-0$.
+At a high level, our sampling algorithm (Algorithm~\ref{fig:discr:laplace}) works as follows. As building blocks we have the ability to sample a (discrete) uniform random variable on $\{0,1,\dots,t-1\}$ and the ability to sample Bernoulli random variables with exponential parameters (Algorithm~\ref{fig:bernexp}). Using these building blocks we can generate geometric random variables with increasingly complex parameters, using the previous to obtain the next: First we generate samples from $\mathsf{Geometric}(1-e^{-1})$, then we use this to sample from $\mathsf{Geometric}(1-e^{-1/t})$ for $t \in \mathbb{N}$, until finally we obtain samples from $\mathsf{Geometric}(1-e^{-s/t})$. Once we can sample $Y \sim \mathsf{Geometric}(1-e^{-s/t})$, we combine $Y$ with an additional independent random sign to obtain a two-sided Geometric random variable, which is exactly the desired $\mathsf{Lap}_\Z(t/s)$. When combining the Geometric random variable with a random sign, we must be careful to not double the probability mass at 0; that is, we must reject one of $+0$ and $-0$.
 We can sample $V \sim \mathsf{Geometric}(1-e^{-1})$ by repeatedly sampling $\bern(\exp(-1))$ and counting the number of $1$s we draw before the first $0$.
 To sample $X \sim \mathsf{Geometric}(1-e^{-1/t})$ we independently sample the ``high order bits'' $V = \lfloor X / t \rfloor$ and the low order bits $U = X \mod{t}$. The distribution of $V$ is simply $V \sim \mathsf{Geometric}(1-e^{-1})$, which we have already covered.
 The distribution of $U$ can be obtained by first sampling $U$ uniformly from $\{0,1,\dots,t-1\}$ and then performing rejection sampling, where we accept with probability $\bern(\exp(-U/t))$.
@@ -1186,7 +1186,7 @@ In Algorithm~\ref{fig:dgauss2}, we prove Theorem~\ref{theo:sampling:discrete:gau
     $$
     \ex{}{C} \ge \frac{1-e^{-1/t}}{1+e^{-1/t}}e^{-\frac{1}{2}} \max\{1,\sqrt{2\pi}\sigma\} \ge \frac{e^{-1/2} \sqrt{2\pi}}{2} (1-e^{-1/t})\max\{1,t-1\} > 0.29.
     $$
-    Therefore the probability that the algorithms succeeds and outputs a value in any given iteration of the loop is lower bounded by a positive constant. Thus the number of iterations of the loop follows a geometric distribution and is constant in expectation. Since, for each iteration, the expected number of operations required to sample $Y$ and $C$ is constant (by Propositions~\ref{prop:sampling:discr:laplace} and~\ref{prop:sampling:expbernoulli}) the overall number of operations is constant in expectation.
+    Therefore the probability that the algorithm succeeds and outputs a value in any given iteration of the loop is lower bounded by a positive constant. Thus the number of iterations of the loop follows a geometric distribution and is constant in expectation. Since, for each iteration, the expected number of operations required to sample $Y$ and $C$ is constant (by Propositions~\ref{prop:sampling:discr:laplace} and~\ref{prop:sampling:expbernoulli}) the overall number of operations is constant in expectation.
 \end{proof}
 
 
@@ -1219,7 +1219,7 @@ Let $(Y_n)_{n\geq 1}$ be independent random variables satisfying $\mathbb{E}[e^{
     For $n\geq 0$, let $M_n \eqdef e^{\sum_{k=1}^n Y_k} \geq 0$ (so that $M_0=1$). Note that 
     $
       \mathbb{E}[ M_{n+1} \mid M_1,\dots, M_n ] = \mathbb{E}[ e^{X_{n+1}} ] M_n \leq M_n
-    $, i.e., $(M_n)_{n\geq 0}$ is a supermartingale. By the optional stopping theorem for non-negative supermartingales (cf., e.g.,~\cite[Corollary~10.10(d)]{Williams91}, as $T$ is a.s. finite we get
+    $, i.e., $(M_n)_{n\geq 0}$ is a supermartingale. By the optional stopping theorem for non-negative supermartingales (cf., e.g.,~\cite[Corollary~10.10(d)]{Williams91}), as $T$ is a.s. finite we get
     $
         \mathbb{E}[ M_T ] \leq \mathbb{E}[ M_0 ] = 1 \,,
     $
@@ -1238,7 +1238,7 @@ Thus $S$ is $\alpha\beta$-subexponential.
 \end{proof}
 In our case, $T$ corresponds to the number of times the loop runs and $X_n$ corresponds to the number of operations required inside the $n$-th run of the loop. Applying the above lemma to each nested loop shows that the overall runtimes of Algorithm~\ref{fig:bernexp}, Algorithm~\ref{fig:discr:laplace}, and Algorithm~\ref{fig:dgauss2} are all subexponential random variables.
 
-This means in particular that, for any $\delta \in (0,1)$, to generate a batch of $k$ samples from $\dgauss{\sigma^2}$ (i.e., $k$ runs of Algorithm \ref{fig:dgauss2}), the probability of requiring more than $O(k + \log(1/\delta))$ arithmetic operations is at most $\delta$.\footnote{Generating batches of samples, rather than one sample at a time, means we only need to pay one $\log(1/\delta)$ in our analysis, rather than $O(k \cdot \log(1/\delta))$ if we analyse each sample separately. (If $X_1,\cdots,X_k$ are the number of operations of the $k$ runs, then $\pr{}{X_1 + \cdots + X_k \ge t} \le \ex{}{e^{(X_1 + \cdots + X_k-t)/\lambda}} \le e^{k-t/\lambda}$, where $\lambda$ is the subexponential constant of Algorithm \ref{fig:dgauss2}'s number of operations. Setting $t=\lambda(k+\log(1/\delta))$ ensures this probability is at most $\delta$.)} Each arithmetic operation corresponds effectively to a constant number of operations in the word RAM model. However, if the runtime is $T$ then the loop counters could require $O(\log T)$ words. Thus the number of word RAM operations is at most $\tilde{O}(k + \log(1/\delta))$ with probability at least $1-\delta$. (We do not consider an amortized complexity analysis.)
+This means in particular that, for any $\delta \in (0,1)$, to generate a batch of $k$ samples from $\dgauss{\sigma^2}$ (i.e., $k$ runs of Algorithm \ref{fig:dgauss2}), the probability of requiring more than $O(k + \log(1/\delta))$ arithmetic operations is at most $\delta$.\footnote{Generating batches of samples, rather than one sample at a time, means we only need to pay one $\log(1/\delta)$ in our analysis, rather than $O(k \cdot \log(1/\delta))$ if we analyse each sample separately. (If $X_1,\cdots,X_k$ are the number of operations of the $k$ runs, then $\pr{}{X_1 + \cdots + X_k \ge t} \le \ex{}{e^{(X_1 + \cdots + X_k-t)/\lambda}} \le e^{k-t/\lambda}$, where $\lambda$ is the subexponential constant of Algorithm \ref{fig:dgauss2}'s number of operations. Setting $t=\lambda(k+\log(1/\delta))$ ensures this probability is at most $\delta$.)} Each arithmetic operation corresponds effectively to a constant number of operations in the Word RAM model. However, if the runtime is $T$ then the loop counters could require $O(\log T)$ words. Thus the number of Word RAM operations is at most $\tilde{O}(k + \log(1/\delta))$ with probability at least $1-\delta$. (We do not consider an amortized complexity analysis.)
 
 Thus, our algorithms have a highly concentrated runtime. This is important: If they do not terminate in time, then this may result in a failure of differential privacy. 
 While there is the possibility for our approach to run unboundedly long, one could consider a hard stopping variant.
