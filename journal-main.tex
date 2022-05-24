@@ -332,7 +332,11 @@ Thus, for all $y \in \mathcal{Y}$,
 We note that $Y$ and $-Y$ and $Y'-q(x')$ and $q(x')-Y'$ all have the same distribution. Hence
 $$\pr{}{Z>\eps} = \pr{}{f(Y)>\eps} = \pr{}{-Y > \frac{\sigma^2\eps}{q(x')}-\frac{q(x')}{2}} = \pr{}{Y > \frac{\sigma^2\eps}{q(x')}-\frac{q(x')}{2}}$$
 and
-$$\pr{}{-Z'>\eps} = \pr{}{-Y' > \frac{\sigma^2\eps}{q(x')}-\frac{q(x')}{2}} = \pr{}{Y-q(x') > \frac{\sigma^2\eps}{q(x')}-\frac{q(x')}{2}} = \pr{}{Y > \frac{\sigma^2\eps}{q(x')}+\frac{q(x')}{2}}.$$\qedhere
+\begin{eqnarray*}
+\pr{}{-Z'>\eps} & = & \pr{}{-Y' > \frac{\sigma^2\eps}{q(x')}-\frac{q(x')}{2}}\\
+                & = & \pr{}{Y-q(x') > \frac{\sigma^2\eps}{q(x')}-\frac{q(x')}{2}} \\
+                & = & \pr{}{Y > \frac{\sigma^2\eps}{q(x')}+\frac{q(x')}{2}}.
+\end{eqnarray*}\qedhere
 \end{proof}
 
 \paragraph{Proofs of the analytical bounds.}
@@ -778,7 +782,13 @@ Let $X$ be a distribution on $\R$ such that $\dr{2}{X+1}{X} \le \varepsilon^2$. 
 \end{equation}
 \end{prop}
 \begin{proof}
-We follow the proof Lemma C.2 of Bun and Steinke \cite{BunS16}. For notational simplicity we assume $X$ has a probability density with respect to the Lesbesgue measure on the reals, which we abusively denote by $\pr{}{X=x}$. Let $f(x)=\log(\pr{}{X+1=x}/\pr{}{X=x})$ -- i.e., $f$ is the logarithm of the Radon-Nikodym derivative of the shifted distribution $X+1$ with respect to the distribution of $X$. Then $$e^{\dr{2}{X+1}{X}} = \int_\R \pr{}{X+1=x}^2 \pr{}{X=x}^{-1} \mathrm{d}x = \int_\R \left(\frac{\pr{}{X+1=x}}{\pr{}{X=x}}\right)^2 \pr{}{X=x} \mathrm{d}x = \ex{}{e^{2f(X)}}$$
+We follow the proof Lemma C.2 of Bun and Steinke \cite{BunS16}. For notational simplicity we assume $X$ has a probability density with respect to the Lesbesgue measure on the reals, which we abusively denote by $\pr{}{X=x}$. Let $f(x)=\log(\pr{}{X+1=x}/\pr{}{X=x})$ -- i.e., $f$ is the logarithm of the Radon-Nikodym derivative of the shifted distribution $X+1$ with respect to the distribution of $X$. Then
+%
+\begin{eqnarray*}
+e^{\dr{2}{X+1}{X}} & = & \int_\R \pr{}{X+1=x}^2 \pr{}{X=x}^{-1} \mathrm{d}x \\
+                   & = & \int_\R \left(\frac{\pr{}{X+1=x}}{\pr{}{X=x}}\right)^2 \pr{}{X=x} \mathrm{d}x = \ex{}{e^{2f(X)}}
+\end{eqnarray*}
+%
 and $$\ex{}{X+1} = \int_\R x \pr{}{X+1=x} \mathrm{d}x = \int_\R x e^{f(x)} \pr{}{X=x} \mathrm{d}x = \ex{}{X \cdot e^{f(X)}}.$$
 We also have $$\ex{}{e^{f(X)}} = \int_\R \frac{\pr{}{X+1=x}}{\pr{}{X=x}} \pr{}{X=x} \mathrm{d}x = \int_\R \pr{}{X=x} \mathrm{d}x = 1.$$
 By Cauchy-Schwarz, $$1=\ex{}{X+1}-\ex{}{X} = \ex{}{X \cdot (e^{f(X)}-1)} \le \sqrt{\ex{}{X^2} \cdot \ex{}{(e^{f(X)}-1)^2}}.$$
@@ -855,11 +865,11 @@ For all $m \in \Z$ with $m \ge 1$ and all $\sigma \in \R$ with $\sigma>0$,
 \end{prop}
 \begin{proof}
 On the one hand, by definition of a rounded Gaussian, we have
-\[
+\begin{eqnarray*}
 \sqrt{2\pi\sigma^2}\pr{X \gets \roundN(0,\sigma^2)}{X \ge m}
-= \int_{m-1/2}^\infty e^{-x^2/(2\sigma^2)}\, \dx
-= \int_{m-1/2}^m e^{-x^2/(2\sigma^2)}\, \dx + \int_{m}^\infty e^{-x^2/(2\sigma^2)}\, \dx\,;
-\]
+ & = & \int_{m-1/2}^\infty e^{-x^2/(2\sigma^2)}\, \dx\\
+ & = & \int_{m-1/2}^m e^{-x^2/(2\sigma^2)}\, \dx + \int_{m}^\infty e^{-x^2/(2\sigma^2)}\, \dx\,;
+\end{eqnarray*}
 on the other hand, we have
 \[
     \sqrt{2\pi\sigma^2}\pr{X \gets \dgauss{\sigma^2}}{X \ge m+1} 
@@ -903,9 +913,9 @@ It is immediate that
  \end{prop}
  \begin{proof}
  Fix any $0 < \alpha \leq \sqrt{2\pi\sigma^2}$. By Equation~\ref{eq:discrete:gaussian:alpha:relation}, for any $x \in \alpha\Z$, we have
- $
-      \pr{X \gets \discparamN{\alpha}(0,\sigma^2)}{X\leq x}  = \pr{X \gets \discN(0, \frac{\sigma^2}{\alpha^2})}{X\leq x/\alpha }  
- $, and so, by Proposition~\ref{prop:tail:bound:gaussian},
+ $$
+      \pr{X \gets \discparamN{\alpha}(0,\sigma^2)}{X\leq x}  = \pr{X \gets \discN(0, \frac{\sigma^2}{\alpha^2})}{X\leq x/\alpha }  ,
+ $$ and so, by Proposition~\ref{prop:tail:bound:gaussian},
  \[
          \pr{X \gets \mathcal{N}(0,\frac{\sigma^2}{\alpha^2})}{\alpha X \leq x-\alpha} \leq \pr{X \gets \discparamN{\alpha}(0,\sigma^2)}{X\leq x} \leq \frac{1}{1+3e^{-2\pi^2\sigma^2/\alpha^2}}\pr{X \gets \mathcal{N}(0,\frac{\sigma^2}{\alpha^2})}{\alpha X \le x}
  \]
@@ -1148,9 +1158,11 @@ With this in hand, we analyze the distribution of $Z$ conditioned on $\top$ (suc
 by our previous computations. Thus, conditioned on success, $Z$ follows a $\discL(1/\alpha)$ distribution.
 
 We then bound the probability that a fixed iteration of the loop succeeds:
-\[
-    \pr{}{\top} = \pr{}{(B,Y)\neq (1,0)\mid D=1}\pr{}{D=1} = \frac{1+e^{-\alpha}}{2}\cdot \frac{1}{t}\sum_{u=0}^{t-1}e^{-u/t} = \frac{1+e^{-\alpha}}{2}\frac{1-e^{-1}}{t(1-e^{-1/t})} \geq \frac{1-e^{-1}}{2}.
-\]
+\begin{eqnarray*}
+    \pr{}{\top} & = & \pr{}{(B,Y)\neq (1,0)\mid D=1}\pr{}{D=1} \\
+     & = & \frac{1+e^{-\alpha}}{2}\cdot \frac{1}{t}\sum_{u=0}^{t-1}e^{-u/t}\\
+     & = & \frac{1+e^{-\alpha}}{2}\frac{1-e^{-1}}{t(1-e^{-1/t})} \geq \frac{1-e^{-1}}{2}.
+\end{eqnarray*}
 It follows that the number $N$ of iterations of the outer loop needed to output a value $Z$ is geometrically distributed and satisfies $\ex{}{N} \leq \frac{2}{1-e^{-1}} < 3.2$. Moreover, each iteration of the outer loop requires a constant number of operations in expectations. This is because each of the subroutines requires a constant number of operations in expectation and the inner loop runs a geometrically-distributed number of times which is constant in expectation. \end{proof}
 
 \subsection{Sampling from a Discrete Gaussian}
@@ -1175,10 +1187,11 @@ In Algorithm~\ref{fig:dgauss2}, we prove Theorem~\ref{theo:sampling:discrete:gau
 
 \begin{proof}[Proof of Theorem~\ref{theo:sampling:discrete:gaussian}]
     Fix any iteration of the loop, and let $t \gets \lfloor \sigma \rfloor+1$ and $\tau\eqdef 1/t$. Since $Y\gets \discL(1/\tau)$, we have that $C$ is a Bernoulli with parameter
-    \[
-          \ex{}{C} = \ex{}{ \ex{}{C \mid Y} } = \ex{}{ e^{-\frac{(|Y|-\sigma^2\tau)^2}{2\sigma^2}} } = \frac{1-e^{-\tau}}{1+e^{-\tau}} \sum_{y\in\Z} e^{-\frac{(|y|-\sigma^2\tau)^2}{2\sigma^2} - |y|\tau}
-          = \frac{1-e^{-\tau}}{1+e^{-\tau}}e^{-\frac{\sigma^2\tau^2}{2}}\sum_{y\in\Z} e^{-\frac{y^2}{2\sigma^2}}.
-    \]
+    \begin{eqnarray*}
+          \ex{}{C} = \ex{}{ \ex{}{C \mid Y} }  =  \ex{}{ e^{-\frac{(|Y|-\sigma^2\tau)^2}{2\sigma^2}} }
+          & = & \frac{1-e^{-\tau}}{1+e^{-\tau}} \sum_{y\in\Z} e^{-\frac{(|y|-\sigma^2\tau)^2}{2\sigma^2} - |y|\tau}\\
+         & = &\frac{1-e^{-\tau}}{1+e^{-\tau}}e^{-\frac{\sigma^2\tau^2}{2}}\sum_{y\in\Z} e^{-\frac{y^2}{2\sigma^2}}.
+    \end{eqnarray*}
     Thus, for any $y\in \Z$, conditioned on $C=1$ (i.e., on $Y$ being output) we have
     \begin{align*}
         \pr{}{ Y=y \mid C=1 } 
@@ -1264,7 +1277,9 @@ We have implemented the algorithms from Algorithms~\ref{fig:bernexp}, \ref{fig:d
 We thank Shahab Asoodeh, Damien Desfontaines, Peter Kairouz, and Ananda Theertha Suresh for making us aware of several related works.
 
 \bibliography{references}
-\bibliographystyle{alpha}
+%\bibliographystyle{alpha}
+\bibliographystyle{alphaurl}
+%\bibliographystyle{unsrtnat-jpc}
 
 
 \appendix
