@@ -48,6 +48,7 @@ ENTRY
     doi % urlbst
     pubmed % urlbst
     url % urlbst
+    urldate % jpc
     lastchecked % urlbst
   }
   {}
@@ -57,7 +58,7 @@ INTEGERS { output.state before.all mid.sentence after.sentence after.block }
 
 % urlbst...
 % urlbst constants and state variables
-STRINGS { urlintro
+STRINGS { urlintro 
   eprinturl eprintprefix doiprefix doiurl pubmedprefix pubmedurl
   citedstring onlinestring linktextstring
   openinlinelink closeinlinelink }
@@ -75,14 +76,14 @@ FUNCTION {init.urlbst.variables}
   #0 'inlinelinks :=        % 0=URLs explicit; 1=URLs attached to titles
 
   % String constants, which you _might_ want to tweak.
-  "URL: " 'urlintro := % prefix before URL; typically "Available from:" or "URL":
+  "" 'urlintro := % prefix before URL; typically "Available from:" or "URL":
   "online" 'onlinestring := % indication that resource is online; typically "online"
-  "cited " 'citedstring := % indicator of citation date; typically "cited "
+  "Accessed on " 'citedstring := % indicator of citation date; typically "cited "
   "[link]" 'linktextstring := % dummy link text; typically "[link]"
   "http://arxiv.org/abs/" 'eprinturl := % prefix to make URL from eprint ref
   "arXiv:" 'eprintprefix := % text prefix printed before eprint ref; typically "arXiv:"
   "https://doi.org/" 'doiurl := % prefix to make URL from DOI
-  "doi:" 'doiprefix :=      % text prefix printed before DOI ref; typically "doi:"
+  "" 'doiprefix :=      % text prefix printed before DOI ref; typically "doi:"
   "http://www.ncbi.nlm.nih.gov/pubmed/" 'pubmedurl := % prefix to make URL from PUBMED
   "PMID:" 'pubmedprefix :=      % text prefix printed before PUBMED ref; typically "PMID:"
 
@@ -231,7 +232,10 @@ FUNCTION {inbrackets}
 
 FUNCTION {format.lastchecked}
 { lastchecked empty$
-    { "" }
+    { urldate empty$
+      { "" }
+      { inbrackets  citedstring urldate * }
+    if$ }
     { inbrackets citedstring lastchecked * }
   if$
 }
