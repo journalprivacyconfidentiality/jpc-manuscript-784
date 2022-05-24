@@ -766,7 +766,7 @@ FUNCTION {format.eprint}
 FUNCTION {format.doi}
 { doi empty$
     { "" }
-    { doiurl doi * make.href }
+    { doiprefix doi * doiurl doi * make.href }
   if$
 }
 
